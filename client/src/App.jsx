@@ -2,6 +2,7 @@ import React from "react";
 import { Routes, Route, Navigate, Link } from "react-router-dom";
 import { useAuth } from "./store/auth";
 import Login from "./pages/Login";
+import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 
 function Protected({ children }) {
@@ -16,32 +17,23 @@ export default function App() {
   return (
     <div className="max-w-3xl mx-auto p-6">
       <header className="flex justify-between items-center mb-6">
-        <Link to="/" className="font-bold text-xl">
-          Smart Job Tracker
-        </Link>
+        <Link to="/" className="font-bold text-xl">Smart Job Tracker</Link>
         <nav className="flex gap-4">
           {!user ? (
-            <Link to="/login" className="text-blue-600">
-              Login
-            </Link>
+            <>
+              <Link to="/login" className="text-blue-600">Login</Link>
+              <Link to="/register" className="text-blue-600">Register</Link>
+            </>
           ) : (
-            <button onClick={logout} className="text-red-600">
-              Logout
-            </button>
+            <button onClick={logout} className="text-red-600">Logout</button>
           )}
         </nav>
       </header>
 
       <Routes>
-        <Route
-          path="/"
-          element={
-            <Protected>
-              <Dashboard />
-            </Protected>
-          }
-        />
+        <Route path="/" element={<Protected><Dashboard /></Protected>} />
         <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
       </Routes>
     </div>
   );
