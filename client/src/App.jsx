@@ -2,38 +2,73 @@ import React from "react";
 import { Routes, Route, Navigate, Link } from "react-router-dom";
 import { useAuth } from "./store/auth";
 import Login from "./pages/Login";
-import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
+import ImportCSV from "./pages/ImportCSV";
 
-function Protected({ children }) {
+function Private({ children }) {
   const { accessToken } = useAuth();
   if (!accessToken) return <Navigate to="/login" replace />;
   return children;
 }
 
 export default function App() {
-  const { user, logout } = useAuth();
+  const { accessToken, logout } = useAuth();
 
   return (
-    <div className="max-w-3xl mx-auto p-6">
-      <header className="flex justify-between items-center mb-6">
-        <Link to="/" className="font-bold text-xl">Smart Job Tracker</Link>
-        <nav className="flex gap-4">
-          {!user ? (
+    <div className="max-w-5xl mx-auto p-4 space-y-4">
+      {/* Top Nav */}
+      <nav className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Link to="/" className="text-lg font-semibold">
+            Smart Job Tracker
+          </Link>
+          {accessToken && (
             <>
-              <Link to="/login" className="text-blue-600">Login</Link>
-              <Link to="/register" className="text-blue-600">Register</Link>
+              <Link to="/" className="text-blue-600 underline">
+                Dashboard
+              </Link>
+              <Link to="/import" className="text-blue-600 underline">
+                Import CSV
+              </Link>
             </>
-          ) : (
-            <button onClick={logout} className="text-red-600">Logout</button>
           )}
-        </nav>
-      </header>
+        </div>
+        <div>
+          {accessToken ? (
+            <button onClick={logout} className="text-red-600">
+              Logout
+            </button>
+          ) : (
+            <Link to="/login" className="text-blue-600 underline">
+              Login
+            </Link>
+          )}
+        </div>
+      </nav>
 
+      {/* Routes */}
       <Routes>
-        <Route path="/" element={<Protected><Dashboard /></Protected>} />
+        <Route
+          path="/"
+          element={
+            <Private>
+              <Dashboard />
+            </Private>
+          }
+        />
+        <Route
+          path="/import"
+          element={
+            <Private>
+              <ImportCSV />
+            </Private>
+          }
+        />
         <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
+        <Route
+          path="*"
+          element={<Navigate to={accessToken ? "/" : "/login"} replace />}
+        />
       </Routes>
     </div>
   );
