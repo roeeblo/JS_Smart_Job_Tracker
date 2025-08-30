@@ -242,6 +242,100 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
 });
+app.post("/import/json", requireAuth, async (req, res) => {
+  // Body: { items: [{company, role, status?, source?, location?, notes?}, ...] }
+  const allowedStatuses = new Set([
+    "applied",
+    "interview",
+    "test",
+    "home test",
+    "test 2",
+    "offer",
+    "accepted",
+    "rejected",
+  ]);
+
+  try {
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (!items.length) return res.status(400).json({ error: "items array is required" });
+
+    // נירמול בסיסי + סינון ריקים (ללא company/role)
+    const normalized = items
+      .map((r) => ({
+        company: (r.company || "").toString().trim(),
+        role: (r.role || "").toString().trim(),
+        status: ((r.status || "applied") + "").toLowerCase().trim(),
+        source: (r.source || "LinkedIn").toString().trim(),
+        location: (r.location || "").toString().trim(),
+        notes: (r.notes || "").toString().trim(),
+      }))
+      .filter((r) => r.company && r.role);
+
+    if (!normalized.length) {
+      return res.status(400).json({ error: "no valid items (missing company/role)" });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const existing = new Map();
+      {
+        const { rows } = await client.query(
+          `SELECT company, role, COALESCE(NULLIF(notes,''),'') AS notes
+             FROM job_applications
+            WHERE user_id = $1`,
+          [req.userId]
+        );
+        for (const r of rows) {
+          const keyCR = `${r.company.toLowerCase()}|${r.role.toLowerCase()}`;
+          existing.set(`CR|${keyCR}`, true);
+          if (r.notes) existing.set(`N|${r.notes}`, true);
+        }
+      }
+
+      let inserted = 0;
+      let skipped = 0;
+      const insertedItems = [];
+      const skippedItems = [];
+
+      for (const r of normalized) {
+        const status = allowedStatuses.has(r.status) ? r.status : "applied";
+        const keyCR = `CR|${r.company.toLowerCase()}|${r.role.toLowerCase()}`;
+        const keyN = r.notes ? `N|${r.notes}` : null;
+
+        if (existing.has(keyCR) || (keyN && existing.has(keyN))) {
+          skipped++;
+          skippedItems.push({ reason: "duplicate", item: r });
+          continue;
+        }
+
+        const { rows: one } = await client.query(
+          `INSERT INTO job_applications (user_id, company, role, status, source, location, notes)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)
+           RETURNING id, user_id, company, role, status, source, location, notes`,
+          [req.userId, r.company, r.role, status, r.source || null, r.location || null, r.notes || null]
+        );
+
+        existing.set(keyCR, true);
+        if (keyN) existing.set(keyN, true);
+
+        inserted++;
+        insertedItems.push(one[0]);
+      }
+
+      await client.query("COMMIT");
+      return res.json({ ok: true, inserted, skipped, insertedItems, skippedItems });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  } catch (e) {
+    console.error("JSON import error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
 
 app.post("/import/csv", requireAuth, upload.single("file"), async (req, res) => {
   if (!req.file)

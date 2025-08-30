@@ -49,7 +49,6 @@ function renderLabel({ cx, cy, midAngle, outerRadius, name, value }) {
    ======================= */
 
 function toCSVRows(rows) {
-  // עמודות לייצוא
   const cols = ["id", "company", "role", "status", "source", "location", "notes"];
   const header = cols.join(",");
   const body = rows
@@ -57,12 +56,11 @@ function toCSVRows(rows) {
       cols
         .map((k) => {
           const val = r[k] == null ? "" : String(r[k]);
-          // בריחה בסיסית של פסיקים/מרכאות/שורות
           const needsQuotes = /[",\n]/.test(val);
           const clean = val.replace(/"/g, '""');
           return needsQuotes ? `"${clean}"` : clean;
         })
-        .join(","),
+        .join(",")
     )
     .join("\n");
   return `${header}\n${body}`;
@@ -78,6 +76,72 @@ function downloadBlob(content, filename, type) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+/* =======================
+   Small Editable input
+   ======================= */
+
+function Editable({
+  value,
+  onSave,
+  placeholder = "",
+  className = "",
+  textClassName = "",
+  title = "",
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value || "");
+
+  useEffect(() => {
+    // sync external changes
+    if (!editing) setDraft(value || "");
+  }, [value, editing]);
+
+  const commit = async () => {
+    const v = (draft || "").trim();
+    if (v !== (value || "")) {
+      await onSave(v);
+    }
+    setEditing(false);
+  };
+
+  const cancel = () => {
+    setDraft(value || "");
+    setEditing(false);
+  };
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className={`px-1 py-0.5 rounded hover:bg-gray-50 text-left ${textClassName}`}
+        title={title ? `${title} — click to edit` : "Click to edit"}
+      >
+        {value ? (
+          <span className="underline decoration-dotted underline-offset-2">{value}</span>
+        ) : (
+          <span className="text-gray-400">{placeholder}</span>
+        )}
+      </button>
+    );
+  }
+
+  return (
+    <input
+      autoFocus
+      className={`border p-1 rounded text-sm ${className}`}
+      value={draft}
+      placeholder={placeholder}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape") cancel();
+      }}
+    />
+  );
 }
 
 export default function Dashboard() {
@@ -132,7 +196,7 @@ export default function Dashboard() {
         console.error("Failed to add job:", error);
       }
     },
-    [form],
+    [form]
   );
 
   // עדכון שדה בודד
@@ -222,10 +286,13 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="min-w-0">
+          {/* title הוסר לפי בקשתך */}
           <p className="text-gray-600 truncate">{message}</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={logout} className="text-red-600">Logout</button>
+          <button onClick={logout} className="text-red-600">
+            Logout
+          </button>
         </div>
       </div>
 
@@ -314,6 +381,57 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Add new job */}
+      <form onSubmit={addJob} className="bg-white rounded border p-4 space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
+          <input
+            className="border p-2 rounded"
+            placeholder="Company"
+            value={form.company}
+            onChange={(e) => setForm((s) => ({ ...s, company: e.target.value }))}
+          />
+          <input
+            className="border p-2 rounded"
+            placeholder="Role"
+            value={form.role}
+            onChange={(e) => setForm((s) => ({ ...s, role: e.target.value }))}
+          />
+          <input
+            className="border p-2 rounded"
+            placeholder="Source"
+            value={form.source}
+            onChange={(e) => setForm((s) => ({ ...s, source: e.target.value }))}
+          />
+          <input
+            className="border p-2 rounded"
+            placeholder="Location"
+            value={form.location}
+            onChange={(e) => setForm((s) => ({ ...s, location: e.target.value }))}
+          />
+          <select
+            className="border p-2 rounded"
+            value={form.status}
+            onChange={(e) => setForm((s) => ({ ...s, status: e.target.value }))}
+          >
+            {STATUS_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </div>
+        <textarea
+          className="border p-2 rounded w-full"
+          rows={2}
+          placeholder="Notes..."
+          value={form.notes}
+          onChange={(e) => setForm((s) => ({ ...s, notes: e.target.value }))}
+        />
+        <div className="text-right">
+          <button className="bg-blue-600 text-white px-4 py-2 rounded">Add</button>
+        </div>
+      </form>
+
       {/* Job List */}
       <div className="space-y-3">
         {filtered.length === 0 && <div className="text-gray-500">No jobs match your filters</div>}
@@ -322,17 +440,54 @@ export default function Dashboard() {
           <div key={j.id} className="bg-white rounded border p-4">
             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
               <div className="min-w-0">
-                <div className="font-medium">
-                  {j.company} — {j.role}
-                </div>
-                <div className="text-sm text-gray-500">
-                  {j.source && `Source: ${j.source} · `}
-                  {j.location && `Location: ${j.location}`}
+                {/* Title line with editable company & role */}
+                <div className="font-medium flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <Editable
+                    value={j.company || ""}
+                    placeholder="(company)"
+                    title="Company"
+                    textClassName="text-base"
+                    onSave={(v) => updateField(j.id, "company", v)}
+                  />
+                  <span>—</span>
+                  <Editable
+                    value={j.role || ""}
+                    placeholder="(role)"
+                    title="Role"
+                    textClassName="text-base"
+                    onSave={(v) => updateField(j.id, "role", v)}
+                  />
                 </div>
 
-                {j.notes && (
-                  <div className="text-sm text-gray-700 mt-1 break-words">Notes: {j.notes}</div>
-                )}
+                {/* Meta line with editable source & location */}
+                <div className="text-sm text-gray-500 flex flex-wrap items-center gap-2 mt-1">
+                  <span>Source:</span>
+                  <Editable
+                    value={j.source || ""}
+                    placeholder="(source)"
+                    title="Source"
+                    onSave={(v) => updateField(j.id, "source", v)}
+                  />
+                  <span>·</span>
+                  <span>Location:</span>
+                  <Editable
+                    value={j.location || ""}
+                    placeholder="(location)"
+                    title="Location"
+                    onSave={(v) => updateField(j.id, "location", v)}
+                  />
+                </div>
+
+                {/* Notes editable (existing) */}
+                <div className="mt-2">
+                  <textarea
+                    className="border p-2 rounded w-full text-sm"
+                    rows={2}
+                    placeholder="Notes..."
+                    value={j.notes || ""}
+                    onChange={(e) => updateField(j.id, "notes", e.target.value)}
+                  />
+                </div>
               </div>
 
               {/* Quick actions */}
@@ -356,16 +511,6 @@ export default function Dashboard() {
                   >
                     Delete
                   </button>
-                </div>
-
-                <div>
-                  <textarea
-                    className="border p-2 rounded w-full text-sm"
-                    rows={2}
-                    placeholder="Notes..."
-                    value={j.notes || ""}
-                    onChange={(e) => updateField(j.id, "notes", e.target.value)}
-                  />
                 </div>
               </div>
             </div>
