@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+  useCallback,
+  memo,
+} from "react";
 import api from "../api";
 import { useAuth } from "../store/auth";
 import { PieChart, Pie, Cell, Legend, ResponsiveContainer } from "recharts";
@@ -7,7 +13,6 @@ import * as XLSX from "xlsx";
 /* =======================
    Status Config
    ======================= */
-
 const STATUS_OPTIONS = [
   "applied",
   "interview",
@@ -20,12 +25,12 @@ const STATUS_OPTIONS = [
 ];
 
 const STATUS_COLORS = {
-  applied: "#3b82f6",
+  applied: "#06b6d4",
   interview: "#f59e0b",
-  test: "#06b6d4",
+  test: "#22d3ee",
   "home test": "#0ea5e9",
   "test 2": "#14b8a6",
-  offer: "#8b5cf6",
+  offer: "#a855f7",
   accepted: "#10b981",
   rejected: "#ef4444",
 };
@@ -38,7 +43,14 @@ function renderLabel({ cx, cy, midAngle, outerRadius, name, value }) {
   const y = cy + r * Math.sin(-midAngle * RAD);
   const anchor = Math.abs(x - cx) < 2 ? "middle" : x > cx ? "start" : "end";
   return (
-    <text x={x} y={y} textAnchor={anchor} dominantBaseline="middle" fontSize={12}>
+    <text
+      x={x}
+      y={y}
+      textAnchor={anchor}
+      dominantBaseline="middle"
+      fontSize={12}
+      fill="#e5e7eb"
+    >
       {`${name} (${value})`}
     </text>
   );
@@ -47,7 +59,6 @@ function renderLabel({ cx, cy, midAngle, outerRadius, name, value }) {
 /* =======================
    Export helpers
    ======================= */
-
 function toCSVRows(rows) {
   const cols = ["id", "company", "role", "status", "source", "location", "notes"];
   const header = cols.join(",");
@@ -79,9 +90,8 @@ function downloadBlob(content, filename, type) {
 }
 
 /* =======================
-   Small Editable input
+   Inline editable
    ======================= */
-
 function Editable({
   value,
   onSave,
@@ -94,7 +104,6 @@ function Editable({
   const [draft, setDraft] = useState(value || "");
 
   useEffect(() => {
-    // sync external changes
     if (!editing) setDraft(value || "");
   }, [value, editing]);
 
@@ -116,13 +125,13 @@ function Editable({
       <button
         type="button"
         onClick={() => setEditing(true)}
-        className={`px-1 py-0.5 rounded hover:bg-gray-50 text-left ${textClassName}`}
+        className={`px-1 py-0.5 rounded hover:bg-slate-800/60 text-left ${textClassName}`}
         title={title ? `${title} — click to edit` : "Click to edit"}
       >
         {value ? (
           <span className="underline decoration-dotted underline-offset-2">{value}</span>
         ) : (
-          <span className="text-gray-400">{placeholder}</span>
+          <span className="text-slate-500">{placeholder}</span>
         )}
       </button>
     );
@@ -131,7 +140,7 @@ function Editable({
   return (
     <input
       autoFocus
-      className={`border p-1 rounded text-sm ${className}`}
+      className={`input ${className}`}
       value={draft}
       placeholder={placeholder}
       onChange={(e) => setDraft(e.target.value)}
@@ -143,6 +152,125 @@ function Editable({
     />
   );
 }
+
+/* =======================
+   Debounced textarea (for Notes)
+   ======================= */
+function DebouncedTextArea({ value, onSave, rows = 2, className = "" }) {
+  const [draft, setDraft] = useState(value ?? "");
+  const timerRef = React.useRef(null);
+
+  // sync external updates
+  useEffect(() => {
+    setDraft(value ?? "");
+  }, [value]);
+
+  const scheduleSave = useCallback(
+    (v) => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => onSave(v), 600); // 0.6s after typing stops
+    },
+    [onSave]
+  );
+
+  return (
+    <textarea
+      className={`textarea w-full text-sm ${className}`}
+      rows={rows}
+      placeholder="Notes..."
+      value={draft}
+      onChange={(e) => {
+        const v = e.target.value;
+        setDraft(v);
+        scheduleSave(v);
+      }}
+      onBlur={() => onSave(draft)}
+    />
+  );
+}
+
+/* =======================
+   Single Job Row (memoized)
+   ======================= */
+const JobRow = memo(function JobRow({ j, updateField, removeJob }) {
+  return (
+    <div className="card">
+      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+        <div className="min-w-0">
+          {/* Title line */}
+          <div className="font-medium flex flex-wrap items-center gap-x-2 gap-y-1">
+            <Editable
+              value={j.company || ""}
+              placeholder="(company)"
+              title="Company"
+              textClassName="text-base"
+              onSave={(v) => updateField(j.id, "company", v)}
+            />
+            <span className="muted">—</span>
+            <Editable
+              value={j.role || ""}
+              placeholder="(role)"
+              title="Role"
+              textClassName="text-base"
+              onSave={(v) => updateField(j.id, "role", v)}
+            />
+          </div>
+
+          {/* Meta */}
+          <div className="text-sm text-slate-400 flex flex-wrap items-center gap-2 mt-1">
+            <span>Source:</span>
+            <Editable
+              value={j.source || ""}
+              placeholder="(source)"
+              title="Source"
+              onSave={(v) => updateField(j.id, "source", v)}
+            />
+            <span>·</span>
+            <span>Location:</span>
+            <Editable
+              value={j.location || ""}
+              placeholder="(location)"
+              title="Location"
+              onSave={(v) => updateField(j.id, "location", v)}
+            />
+          </div>
+
+          {/* Notes (debounced) */}
+          <div className="mt-2">
+            <DebouncedTextArea
+              value={j.notes || ""}
+              onSave={(v) => updateField(j.id, "notes", v)}
+            />
+          </div>
+        </div>
+
+        {/* Quick actions */}
+        <div className="flex flex-col items-stretch gap-2 w-full md:w-auto">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-slate-400">Status:</span>
+            <select
+              className="select text-sm"
+              value={j.status}
+              onChange={(e) => updateField(j.id, "status", e.target.value)}
+            >
+              {STATUS_OPTIONS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => removeJob(j.id)}
+              className="btn text-red-300 hover:text-red-200"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
@@ -158,16 +286,16 @@ export default function Dashboard() {
     notes: "",
   });
 
-  // חיפוש/סינון
+  // Filters
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  // טעינה ראשונית
+  // Load initial
   useEffect(() => {
     (async () => {
       try {
-        const prof = await api.get("/profile");
-        setMessage(`Hello ${user?.name}, uid=${prof.data.userId}`);
+        await api.get("/profile"); // רק לבדיקה שה־token תקף
+        setMessage(`Hello ${user?.name}`);
         const { data } = await api.get("/jobs");
         setJobs(data);
       } catch (e) {
@@ -176,7 +304,7 @@ export default function Dashboard() {
     })();
   }, [user?.name]);
 
-  // יצירת משרה
+  // Create
   const addJob = useCallback(
     async (e) => {
       e.preventDefault();
@@ -199,17 +327,22 @@ export default function Dashboard() {
     [form]
   );
 
-  // עדכון שדה בודד
+  // Update field (optimistic for snappy UI)
   const updateField = useCallback(async (id, field, value) => {
+    // Optimistic UI
+    setJobs((prev) =>
+      prev.map((j) => (j.id === id ? { ...j, [field]: value } : j))
+    );
     try {
       const { data } = await api.put(`/jobs/${id}`, { [field]: value });
+      // Sync back with server (in case it normalized something)
       setJobs((prev) => prev.map((j) => (j.id === id ? data : j)));
     } catch (error) {
       console.error("Failed to update job:", error);
     }
   }, []);
 
-  // מחיקה
+  // Delete
   const removeJob = useCallback(async (id) => {
     if (!window.confirm("Delete this job?")) return;
     try {
@@ -220,7 +353,7 @@ export default function Dashboard() {
     }
   }, []);
 
-  // סינון להצגה
+  // filtered list
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
     return jobs.filter((j) => {
@@ -234,7 +367,7 @@ export default function Dashboard() {
     });
   }, [jobs, q, statusFilter]);
 
-  // דטה לגרף
+  // chart data
   const statusData = useMemo(() => {
     const counts = {};
     filtered.forEach((j) => {
@@ -260,7 +393,7 @@ export default function Dashboard() {
     };
   }, [jobs]);
 
-  // Export (filtered)
+  // export
   const doExportCSV = useCallback(() => {
     const csv = toCSVRows(filtered);
     const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
@@ -284,60 +417,50 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="glass p-4 flex items-center justify-between">
         <div className="min-w-0">
-          {/* title הוסר לפי בקשתך */}
-          <p className="text-gray-600 truncate">{message}</p>
+          <div className="text-sm muted">Smart Job Tracker</div>
+          <div className="text-lg font-semibold tracking-tight">{message}</div>
         </div>
         <div className="flex gap-2">
-          <button onClick={logout} className="text-red-600">
-            Logout
-          </button>
+          <button onClick={logout} className="btn">Logout</button>
         </div>
       </div>
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <div className="rounded-xl border bg-white p-3">
-          <div className="text-sm text-gray-500">Total</div>
+        <div className="kpi">
+          <div className="muted text-sm">Total</div>
           <div className="text-2xl font-semibold">{kpis.total}</div>
         </div>
         {["applied", "interview", "offer", "accepted"].map((key) => (
-          <div key={key} className="rounded-xl border bg-white p-3">
-            <div className="text-sm text-gray-500 capitalize">{key}</div>
+          <div key={key} className="kpi">
+            <div className="muted text-sm capitalize">{key}</div>
             <div className="text-2xl font-semibold">{kpis.counts[key] || 0}</div>
           </div>
         ))}
       </div>
 
       {/* Export + Filters */}
-      <div className="flex flex-col md:flex-row gap-2 md:items-center justify-between">
+      <div className="glass p-4 flex flex-col md:flex-row gap-3 md:items-center justify-between">
         <div className="flex gap-2">
-          <button
-            onClick={doExportCSV}
-            className="border px-3 py-2 rounded bg-white hover:bg-gray-50"
-            title="Export current view to CSV"
-          >
-            Export CSV (filtered)
+          <button onClick={doExportCSV} className="btn" title="Export current view to CSV">
+            Export CSV
           </button>
-          <button
-            onClick={doExportExcel}
-            className="border px-3 py-2 rounded bg-white hover:bg-gray-50"
-            title="Export current view to Excel"
-          >
-            Export Excel (filtered)
+          <button onClick={doExportExcel} className="btn" title="Export current view to Excel">
+            Export Excel
           </button>
         </div>
 
         <div className="flex flex-col md:flex-row gap-2 md:items-center w-full md:w-auto">
           <input
-            className="border p-2 rounded flex-1 min-w-0"
+            className="input flex-1 min-w-0"
             placeholder="Search (company, role, source, location, notes)"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
           <select
-            className="border p-2 rounded w-full md:w-56"
+            className="select w-full md:w-56"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
@@ -352,7 +475,7 @@ export default function Dashboard() {
       </div>
 
       {/* Pie Chart */}
-      <div className="bg-white rounded border p-4 select-none">
+      <div className="card">
         <h2 className="font-semibold mb-2">Status distribution</h2>
         <div className="w-full max-w-[560px] mx-auto aspect-square">
           <ResponsiveContainer width="100%" height="100%">
@@ -368,7 +491,7 @@ export default function Dashboard() {
                 paddingAngle={0}
                 label={renderLabel}
                 labelLine={false}
-                stroke="#ffffff"
+                stroke="rgba(2,6,23,0.6)"
                 strokeWidth={2}
               >
                 {statusData.map((slice, i) => (
@@ -382,34 +505,34 @@ export default function Dashboard() {
       </div>
 
       {/* Add new job */}
-      <form onSubmit={addJob} className="bg-white rounded border p-4 space-y-3">
+      <form onSubmit={addJob} className="card space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
           <input
-            className="border p-2 rounded"
+            className="input"
             placeholder="Company"
             value={form.company}
             onChange={(e) => setForm((s) => ({ ...s, company: e.target.value }))}
           />
           <input
-            className="border p-2 rounded"
+            className="input"
             placeholder="Role"
             value={form.role}
             onChange={(e) => setForm((s) => ({ ...s, role: e.target.value }))}
           />
           <input
-            className="border p-2 rounded"
+            className="input"
             placeholder="Source"
             value={form.source}
             onChange={(e) => setForm((s) => ({ ...s, source: e.target.value }))}
           />
           <input
-            className="border p-2 rounded"
+            className="input"
             placeholder="Location"
             value={form.location}
             onChange={(e) => setForm((s) => ({ ...s, location: e.target.value }))}
           />
           <select
-            className="border p-2 rounded"
+            className="select"
             value={form.status}
             onChange={(e) => setForm((s) => ({ ...s, status: e.target.value }))}
           >
@@ -421,100 +544,30 @@ export default function Dashboard() {
           </select>
         </div>
         <textarea
-          className="border p-2 rounded w-full"
+          className="textarea w-full"
           rows={2}
           placeholder="Notes..."
           value={form.notes}
           onChange={(e) => setForm((s) => ({ ...s, notes: e.target.value }))}
         />
         <div className="text-right">
-          <button className="bg-blue-600 text-white px-4 py-2 rounded">Add</button>
+          <button className="btn-primary px-5 py-2 rounded-xl">Add</button>
         </div>
       </form>
 
       {/* Job List */}
       <div className="space-y-3">
-        {filtered.length === 0 && <div className="text-gray-500">No jobs match your filters</div>}
+        {filtered.length === 0 && (
+          <div className="muted">No jobs match your filters</div>
+        )}
 
         {filtered.map((j) => (
-          <div key={j.id} className="bg-white rounded border p-4">
-            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-              <div className="min-w-0">
-                {/* Title line with editable company & role */}
-                <div className="font-medium flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <Editable
-                    value={j.company || ""}
-                    placeholder="(company)"
-                    title="Company"
-                    textClassName="text-base"
-                    onSave={(v) => updateField(j.id, "company", v)}
-                  />
-                  <span>—</span>
-                  <Editable
-                    value={j.role || ""}
-                    placeholder="(role)"
-                    title="Role"
-                    textClassName="text-base"
-                    onSave={(v) => updateField(j.id, "role", v)}
-                  />
-                </div>
-
-                {/* Meta line with editable source & location */}
-                <div className="text-sm text-gray-500 flex flex-wrap items-center gap-2 mt-1">
-                  <span>Source:</span>
-                  <Editable
-                    value={j.source || ""}
-                    placeholder="(source)"
-                    title="Source"
-                    onSave={(v) => updateField(j.id, "source", v)}
-                  />
-                  <span>·</span>
-                  <span>Location:</span>
-                  <Editable
-                    value={j.location || ""}
-                    placeholder="(location)"
-                    title="Location"
-                    onSave={(v) => updateField(j.id, "location", v)}
-                  />
-                </div>
-
-                {/* Notes editable (existing) */}
-                <div className="mt-2">
-                  <textarea
-                    className="border p-2 rounded w-full text-sm"
-                    rows={2}
-                    placeholder="Notes..."
-                    value={j.notes || ""}
-                    onChange={(e) => updateField(j.id, "notes", e.target.value)}
-                  />
-                </div>
-              </div>
-
-              {/* Quick actions */}
-              <div className="flex flex-col items-stretch gap-2 w-full md:w-auto">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm text-gray-500">Status:</span>
-                  <select
-                    className="border p-1 rounded text-sm"
-                    value={j.status}
-                    onChange={(e) => updateField(j.id, "status", e.target.value)}
-                  >
-                    {STATUS_OPTIONS.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={() => removeJob(j.id)}
-                    className="px-2 py-1 border rounded text-sm text-red-600 hover:bg-red-50"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+          <JobRow
+            key={j.id}
+            j={j}
+            updateField={updateField}
+            removeJob={removeJob}
+          />
         ))}
       </div>
     </div>

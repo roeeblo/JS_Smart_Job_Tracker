@@ -24,10 +24,8 @@ export default function Register() {
     }
     try {
       await api.post("/users", { name, email, password });
-
       const login = await api.post("/login", { email, password });
       setAuth(login.data.user, login.data.accessToken, login.data.refreshToken);
-
       nav("/");
     } catch (e) {
       const msg =
@@ -39,40 +37,40 @@ export default function Register() {
   };
 
   return (
-    <div className="max-w-sm mx-auto mt-12 bg-white p-6 rounded-xl shadow">
-      <h1 className="text-2xl font-semibold mb-4">Create account</h1>
+    <div className="max-w-md mx-auto mt-12 card">
+      <h1 className="panel-title mb-1">Create account</h1>
+      <p className="muted mb-6">Join Smart Job Tracker in seconds.</p>
+
+      {err && <div className="mb-3 text-red-400 mono">{err}</div>}
+
       <form onSubmit={submit} className="space-y-3">
         <input
-          className="w-full border p-2 rounded"
+          className="input"
           placeholder="Name"
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
         <input
-          className="w-full border p-2 rounded"
+          className="input"
           placeholder="Email"
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
         <input
-          className="w-full border p-2 rounded"
+          className="input"
           placeholder="Password (min 6)"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
 
-        {err && <div className="text-red-600 text-sm">{err}</div>}
-
-        <button className="w-full bg-green-600 text-white p-2 rounded">
-          Sign up
-        </button>
+        <button className="btn-primary w-full h-11 font-semibold">Sign up</button>
       </form>
 
-      <div className="text-sm text-gray-600 mt-3">
-        Already have an account?{" "}
-        <Link to="/login" className="text-blue-600">Login</Link>
+      <div className="text-sm mt-4">
+        <span className="muted">Already have an account?</span>{" "}
+        <Link to="/login" className="text-primary hover:underline">Login</Link>
       </div>
     </div>
   );

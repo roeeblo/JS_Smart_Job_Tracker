@@ -1,28 +1,32 @@
 import { create } from "zustand";
 
-const saved = JSON.parse(localStorage.getItem("auth") || "null");
+const KEY = "sjt-auth";
 
-export const useAuth = create((set) => ({
-  user: saved?.user || null,
-  accessToken: saved?.accessToken || null,
-  refreshToken: saved?.refreshToken || null,
+function load() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return { user: null, accessToken: null, refreshToken: null };
+    return JSON.parse(raw);
+  } catch {
+    return { user: null, accessToken: null, refreshToken: null };
+  }
+}
 
+export const useAuth = create((set, get) => ({
+  ...load(),
   setAuth: (user, accessToken, refreshToken) => {
-    const auth = { user, accessToken, refreshToken };
-    localStorage.setItem("auth", JSON.stringify(auth));
-    set(auth);
+    const state = { user, accessToken, refreshToken };
+    localStorage.setItem(KEY, JSON.stringify(state));
+    set(state);
   },
-
   setAccessTokenOnly: (accessToken) => {
-    set((state) => {
-      const auth = { ...state, accessToken };
-      localStorage.setItem("auth", JSON.stringify({ user: auth.user, accessToken, refreshToken: auth.refreshToken }));
-      return { accessToken };
-    });
+    const { user, refreshToken } = get();
+    const state = { user, accessToken, refreshToken };
+    localStorage.setItem(KEY, JSON.stringify(state));
+    set({ accessToken });
   },
-
   logout: () => {
-    localStorage.removeItem("auth");
+    localStorage.removeItem(KEY);
     set({ user: null, accessToken: null, refreshToken: null });
   },
 }));

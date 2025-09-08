@@ -1,0 +1,99 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===== Base (Dark + Grid + Noise) ===== */
+@layer base {
+  html, body, #root { height: 100%; }
+  body {
+    @apply bg-slate-950 text-slate-100 antialiased;
+    background-image:
+      radial-gradient(1200px 600px at 80% -10%, rgba(168,85,247,0.18), transparent 60%),
+      radial-gradient(1000px 600px at -10% 20%, rgba(6,182,212,0.15), transparent 60%),
+      linear-gradient(180deg, rgba(2,6,23,1) 0%, rgba(2,6,23,1) 100%);
+  }
+  /* Grid overlay */
+  .bg-grid {
+    background-image: theme('backgroundImage.grid-slim');
+    background-size: 28px 28px, 28px 28px;
+    background-position: -1px -1px, -1px -1px;
+    mask-image: radial-gradient(circle at 50% 30%, black 35%, transparent 75%);
+    opacity: .5;
+  }
+}
+
+/* ===== Components ===== */
+@layer components {
+  .container-shell { @apply mx-auto w-full max-w-6xl px-4; }
+
+  .nav {
+    @apply bg-slate-900/70 backdrop-blur border-b border-slate-800;
+  }
+
+  .brand {
+    @apply font-bold text-lg tracking-tight;
+    background: linear-gradient(90deg, #06B6D4, #A855F7 60%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .glass {
+    @apply bg-slate-900/60 backdrop-blur border border-slate-800 rounded-2xl shadow-glow-soft;
+  }
+
+  .card {
+    @apply glass p-5;
+  }
+
+  .kpi {
+    @apply glass p-4;
+  }
+
+  .input {
+    @apply w-full rounded-xl bg-slate-900/60 border border-slate-800 px-3 py-2
+           placeholder:text-slate-500 text-slate-100 focus:outline-none
+           focus:ring-2 focus:ring-primary/40 focus:border-primary/40;
+  }
+
+  .select {
+    @apply input pr-8;
+  }
+
+  .textarea {
+    @apply input min-h-[96px];
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center rounded-xl px-4 py-2
+           border border-slate-800 bg-slate-900/60 text-slate-100
+           hover:bg-slate-900/80 transition shadow-glow-soft;
+  }
+
+  .btn-primary {
+    @apply relative overflow-hidden border-0 bg-gradient-to-r from-primary to-accent text-white;
+  }
+  .btn-primary::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(120deg, transparent, rgba(255,255,255,0.15), transparent);
+    transform: translateX(-100%);
+    animation: sheen 2.2s linear infinite;
+  }
+
+  .muted {
+    @apply text-slate-400;
+  }
+
+  .mono {
+    @apply font-mono text-sm text-slate-300;
+  }
+
+  .panel-title {
+    @apply text-xl font-semibold;
+  }
+}
+
+/* Small utilities tweak */
+.recharts-default-legend { color: #e5e7eb; }

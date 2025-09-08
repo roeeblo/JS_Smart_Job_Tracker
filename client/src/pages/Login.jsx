@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import api from "../api";
 import { useAuth } from "../store/auth";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 
 export default function Login() {
   const nav = useNavigate();
@@ -17,7 +17,6 @@ export default function Login() {
     setBusy(true);
     try {
       const { data } = await api.post("/login", { email, password });
-      // server returns: { user, accessToken, refreshToken }
       setAuth(data.user, data.accessToken, data.refreshToken);
       nav("/", { replace: true });
     } catch (e) {
@@ -28,26 +27,30 @@ export default function Login() {
   };
 
   return (
-    <div className="max-w-sm mx-auto bg-white border rounded p-4 space-y-4">
-      <h1 className="text-xl font-bold">Login</h1>
-      {!!err && <div className="text-red-600 text-sm">{err}</div>}
+    <div className="max-w-md mx-auto mt-12 card">
+      <h1 className="panel-title mb-1">Welcome back</h1>
+      <p className="muted mb-6">Sign in to continue tracking your job applications.</p>
+
+      {!!err && <div className="mb-3 text-red-400 mono">{err}</div>}
+
       <form onSubmit={submit} className="space-y-3">
         <div>
-          <label className="block text-sm text-gray-600 mb-1">Email</label>
+          <label className="block text-sm muted mb-1">Email</label>
           <input
-            className="border rounded w-full p-2"
+            className="input"
             type="email"
             autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
+            placeholder="you@domain.com"
             required
           />
         </div>
+
         <div>
-          <label className="block text-sm text-gray-600 mb-1">Password</label>
+          <label className="block text-sm muted mb-1">Password</label>
           <input
-            className="border rounded w-full p-2"
+            className="input"
             type="password"
             autoComplete="current-password"
             value={password}
@@ -56,13 +59,16 @@ export default function Login() {
             required
           />
         </div>
-        <button
-          disabled={busy}
-          className="bg-blue-600 text-white rounded px-4 py-2 disabled:opacity-50 w-full"
-        >
+
+        <button className="btn-primary w-full h-11 font-semibold">
           {busy ? "Signing in..." : "Sign in"}
         </button>
       </form>
+
+      <div className="mt-4 text-sm">
+        <span className="muted">No account?</span>{" "}
+        <Link to="/register" className="text-primary hover:underline">Create one</Link>
+      </div>
     </div>
   );
 }

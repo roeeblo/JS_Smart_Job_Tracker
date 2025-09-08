@@ -1,10 +1,9 @@
-version: '3.8'
+version: "3.9"
 
 services:
   db:
-    image: postgres:15
-    container_name: sjt_db
-    restart: unless-stopped
+    image: postgres:16-alpine
+    container_name: sjt-db
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -12,15 +11,19 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - sjt_pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d smart_job_tracker"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
-  server:
+  api:
     build:
       context: ./server
       dockerfile: Dockerfile
-    container_name: sjt_server
-    depends_on:
-      - db
+    container_name: sjt-api
     environment:
       NODE_ENV: production
       DB_HOST: db
@@ -28,17 +31,26 @@ services:
       DB_USER: postgres
       DB_PASSWORD: postgres
       DB_NAME: smart_job_tracker
+      ACCESS_TOKEN_SECRET: change-me-access
+      REFRESH_TOKEN_SECRET: change-me-refresh
+      CORS_ORIGIN: http://localhost:8080,http://localhost:5173
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - "4000:4000"
-    restart: unless-stopped
 
   client:
     build:
       context: ./client
       dockerfile: Dockerfile
-    container_name: sjt_client
+      args:
+        VITE_API_URL: /api
+    container_name: sjt-client
     depends_on:
-      - server
+      - api
     ports:
-      - "3000:80"
-    restart: unless-stopped
+      - "8080:80"
+
+volumes:
+  sjt_pgdata:

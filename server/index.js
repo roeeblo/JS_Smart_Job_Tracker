@@ -6,6 +6,7 @@ const { Pool } = require("pg");
 const bcrypt = require("bcryptjs");
 const multer = require("multer");
 const { parse } = require("csv-parse");
+const crypto = require("crypto");
 
 const {
   signAccessToken,
@@ -14,20 +15,34 @@ const {
   verifyRefreshToken,
 } = require("./jwt");
 
+const { sendVerificationEmail } = require("./mailer");
+
 const app = express();
 
 /* =======================
-   Core middleware
+   CORS
    ======================= */
+const rawOrigins =
+  process.env.CORS_ORIGIN ||
+  "http://sjt.local,http://localhost:3000,http://localhost:5173";
+
+const allowlist = rawOrigins
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+const corsOptions = {
+  origin(origin, cb) {
+    if (!origin) return cb(null, true);
+    if (allowlist.includes(origin)) return cb(null, true);
+    return cb(new Error(`Not allowed by CORS: ${origin}`));
+  },
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
+};
+app.use(cors(corsOptions));
 app.use(express.json());
-app.use(
-  cors({
-    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true,
-  })
-);
 
 /* =======================
    Database
@@ -79,17 +94,42 @@ app.get("/health", async (_req, res) => {
 });
 
 /* =======================
-   Users
+   Users (list for debug)
    ======================= */
 app.get("/users", async (_req, res) => {
   try {
-    const { rows } = await pool.query("SELECT id, name, email FROM users ORDER BY id DESC");
+    const { rows } = await pool.query(
+      "SELECT id, name, email, email_verified FROM users ORDER BY id DESC"
+    );
     res.json(rows);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
+/* =======================
+   Helpers: verification
+   ======================= */
+function newVerifyToken() {
+  return crypto.randomBytes(32).toString("hex");
+}
+
+async function issueAndSendVerification(user) {
+  const token = newVerifyToken();
+  const expires = new Date(Date.now() + 1000 * 60 * 60 * 24); // 24h
+  const { rows } = await pool.query(
+    "UPDATE users SET verify_token=$1, verify_expires=$2 WHERE id=$3 RETURNING id,email",
+    [token, expires.toISOString(), user.id]
+  );
+  const base = process.env.VERIFY_BASE_URL || "http://localhost:4000";
+  const link = `${base}/verify?token=${encodeURIComponent(token)}`;
+  await sendVerificationEmail(user.email, link);
+  return rows[0];
+}
+
+/* =======================
+   Register
+   ======================= */
 app.post("/users", async (req, res) => {
   const { name, email, password } = req.body || {};
   if (!name || !email || !password) {
@@ -98,12 +138,96 @@ app.post("/users", async (req, res) => {
   try {
     const password_hash = await bcrypt.hash(String(password), 10);
     const { rows } = await pool.query(
-      "INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id, name, email",
+      `INSERT INTO users (name, email, password_hash, email_verified)
+       VALUES ($1, $2, $3, false)
+       RETURNING id, name, email, email_verified`,
       [name, email, password_hash]
     );
-    res.status(201).json(rows[0]);
+    const user = rows[0];
+
+    // שליחת מייל אימות
+    try {
+      await issueAndSendVerification(user);
+    } catch (e) {
+      console.error("Failed to send verification email:", e.message);
+      // ממשיכים — המשתמש קיים, רק המייל נכשל; נקשר קישור בלוג.
+    }
+
+    res.status(201).json({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      message: "Registration successful. Please verify your email.",
+    });
   } catch (e) {
     if (e.code === "23505") return res.status(409).json({ error: "Email already exists" });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/* =======================
+   Verify link + resend
+   ======================= */
+app.get("/verify", async (req, res) => {
+  const token = (req.query.token || "").toString();
+  if (!token) return res.status(400).send("Missing token");
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, verify_expires, email_verified
+         FROM users
+        WHERE verify_token = $1`,
+      [token]
+    );
+    const user = rows[0];
+    if (!user) return res.status(400).send("Invalid token");
+
+    if (user.email_verified) {
+      // כבר מאומת — ננקה טוקן כדי לא לשמר אותו
+      await pool.query(
+        "UPDATE users SET verify_token=NULL, verify_expires=NULL WHERE id=$1",
+        [user.id]
+      );
+      const redirect = (process.env.CLIENT_URL || "http://localhost:5173") + "/login?verified=1";
+      return res.redirect(302, redirect);
+    }
+
+    const exp = user.verify_expires ? new Date(user.verify_expires) : null;
+    if (!exp || exp.getTime() < Date.now()) {
+      return res.status(400).send("Verification link expired. Please request a new one.");
+    }
+
+    await pool.query(
+      "UPDATE users SET email_verified=true, verify_token=NULL, verify_expires=NULL WHERE id=$1",
+      [user.id]
+    );
+
+    const redirect = (process.env.CLIENT_URL || "http://localhost:5173") + "/login?verified=1";
+    return res.redirect(302, redirect);
+  } catch (e) {
+    console.error("Verify error:", e);
+    return res.status(500).send("Server error");
+  }
+});
+
+app.post("/verify/resend", async (req, res) => {
+  const { email } = req.body || {};
+  if (!email) return res.status(400).json({ error: "email required" });
+
+  try {
+    const { rows } = await pool.query(
+      "SELECT id, email, email_verified FROM users WHERE email=$1",
+      [email]
+    );
+    const user = rows[0];
+    if (!user) return res.status(404).json({ error: "User not found" });
+    if (user.email_verified) {
+      return res.json({ ok: true, message: "Already verified" });
+    }
+
+    await issueAndSendVerification(user);
+    res.json({ ok: true });
+  } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
@@ -121,6 +245,10 @@ app.post("/login", async (req, res) => {
 
     const ok = await bcrypt.compare(String(password), user.password_hash);
     if (!ok) return res.status(401).json({ error: "Invalid credentials" });
+
+    if (!user.email_verified) {
+      return res.status(403).json({ error: "Email not verified" });
+    }
 
     const accessToken = signAccessToken({ uid: user.id });
     const refreshToken = signRefreshToken({ uid: user.id });
@@ -236,14 +364,11 @@ app.delete("/jobs/:id", requireAuth, async (req, res) => {
 });
 
 /* =======================
-   Import CSV (English Only)
+   Import CSV/JSON (כמו שהיה)
    ======================= */
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-});
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+
 app.post("/import/json", requireAuth, async (req, res) => {
-  // Body: { items: [{company, role, status?, source?, location?, notes?}, ...] }
   const allowedStatuses = new Set([
     "applied",
     "interview",
@@ -259,7 +384,6 @@ app.post("/import/json", requireAuth, async (req, res) => {
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
     if (!items.length) return res.status(400).json({ error: "items array is required" });
 
-    // נירמול בסיסי + סינון ריקים (ללא company/role)
     const normalized = items
       .map((r) => ({
         company: (r.company || "").toString().trim(),
@@ -359,12 +483,7 @@ app.post("/import/csv", requireAuth, upload.single("file"), async (req, res) => 
 
     const rows = [];
     await new Promise((resolve, reject) => {
-      parse(text, {
-        columns: true,
-        skip_empty_lines: true,
-        trim: true,
-        bom: true,
-      })
+      parse(text, { columns: true, skip_empty_lines: true, trim: true, bom: true })
         .on("data", (record) => rows.push(record))
         .on("end", resolve)
         .on("error", reject);
