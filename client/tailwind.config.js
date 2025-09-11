@@ -14,7 +14,7 @@ export default {
           200: "#A5F3FC",
           300: "#67E8F9",
           400: "#22D3EE",
-          500: "#06B6D4", // CYAN
+          500: "#06B6D4",
           600: "#0891B2",
           700: "#0E7490",
           800: "#155E75",
@@ -22,7 +22,7 @@ export default {
           DEFAULT: "#06B6D4",
         },
         accent: {
-          DEFAULT: "#A855F7", // purple
+          DEFAULT: "#A855F7",
         },
       },
       boxShadow: {

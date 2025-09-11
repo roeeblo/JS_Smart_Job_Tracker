@@ -8,7 +8,7 @@ const { Pool } = require("pg");
 const multer = require("multer");
 const { parse } = require("csv-parse");
 
-// fetch shim ל-Node < 18
+// fetch shim
 const fetch =
   global.fetch ||
   ((...args) => import("node-fetch").then(({ default: f }) => f(...args)));
@@ -22,9 +22,7 @@ const {
 
 const app = express();
 
-/* =======================
-   CORS
-   ======================= */
+// CORS
 const rawOrigins =
   process.env.CORS_ORIGIN ||
   "http://localhost:5173,http://127.0.0.1:5173,http://sjt.local,http://localhost:3000";
@@ -44,9 +42,7 @@ app.use(
 );
 app.use(express.json());
 
-/* =======================
-   DB
-   ======================= */
+// DB
 const pool = new Pool({
   host: process.env.DB_HOST || "localhost",
   port: Number(process.env.DB_PORT || 5432),
@@ -81,9 +77,7 @@ async function isDbHealthy(timeoutMs = 1500) {
   }
 }
 
-/* =======================
-   Auth middleware
-   ======================= */
+// Auth middleware
 function requireAuth(req, res, next) {
   const auth = req.headers["authorization"] || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
@@ -97,22 +91,17 @@ function requireAuth(req, res, next) {
   }
 }
 
-/* =======================
-   Health
-   ======================= */
+// Health
 app.get("/health", async (_req, res) => {
   const dbOk = await isDbHealthy();
   res.json({ ok: true, db: dbOk });
 });
 
-/* =======================
-   GOOGLE OAUTH (STATELESS)
-   ======================= */
+// Google OAuth
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 const CLIENT_URL = (process.env.CLIENT_URL || "http://localhost:5173").replace(/\/$/, "");
 
-// נשתמש ב-ENV אם הוגדר; אחרת נבנה דינאמית מהבקשה (מביא יציבות גם כשעובדים על פורטים/דומיינים שונים מקומית)
 function getRedirectUri(req) {
   const fromEnv = (process.env.GOOGLE_REDIRECT_URI || "").trim();
   return fromEnv || `${req.protocol}://${req.get("host")}/auth/google/callback`;
@@ -151,7 +140,6 @@ function buildGoogleAuthURL(redirectUri, state) {
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
-// התחלת OAuth
 app.get("/auth/google", (req, res) => {
   const redirectUri = getRedirectUri(req);
   const state = signState({ r: "login" });
@@ -159,12 +147,10 @@ app.get("/auth/google", (req, res) => {
   res.redirect(url);
 });
 
-// חזרת OAuth
 app.get("/auth/google/callback", async (req, res) => {
   try {
     const { code, state, error, error_description } = req.query || {};
 
-    // אם גוגל מחזירה שגיאה—נחזיר אותה כמו שהיא, כדי שתדע מה לא תקין (client id, redirect uri וכו')
     if (error) {
       return res
         .status(400)
@@ -176,7 +162,6 @@ app.get("/auth/google/callback", async (req, res) => {
       return res.status(400).send("Missing code/state");
     }
 
-    // אימות state (JWT ללא קוקיז)
     try {
       verifyState(String(state));
     } catch (e) {
@@ -185,7 +170,6 @@ app.get("/auth/google/callback", async (req, res) => {
 
     const redirectUri = getRedirectUri(req);
 
-    // החלפת code לטוקנים
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -193,7 +177,7 @@ app.get("/auth/google/callback", async (req, res) => {
         code: String(code),
         client_id: GOOGLE_CLIENT_ID,
         client_secret: GOOGLE_CLIENT_SECRET,
-        redirect_uri: redirectUri, // חייב להיות זהה בדיוק למה ששימש בשלב הראשון
+        redirect_uri: redirectUri,
         grant_type: "authorization_code",
       }),
     });
@@ -203,9 +187,8 @@ app.get("/auth/google/callback", async (req, res) => {
       console.error("token exchange failed:", txt);
       return res.status(401).send("Google token exchange failed");
     }
-    const tokens = await tokenRes.json(); // { id_token, access_token, ... }
+    const tokens = await tokenRes.json();
 
-    // אימות id_token
     const infoRes = await fetch(
       `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(tokens.id_token)}`
     );
@@ -220,7 +203,6 @@ app.get("/auth/google/callback", async (req, res) => {
     const email = info.email;
     const name = info.name || email.split("@")[0];
 
-    // upsert משתמש
     let userRow;
     const client = await pool.connect();
     try {
@@ -263,7 +245,6 @@ app.get("/auth/google/callback", async (req, res) => {
     const accessToken = signAccessToken({ uid: userRow.id });
     const refreshToken = signRefreshToken({ uid: userRow.id });
 
-    // מחזירים ל־SPA עם hash
     const redirect = new URL(`${CLIENT_URL}/oauth/callback`);
     redirect.hash = new URLSearchParams({
       accessToken,
@@ -279,12 +260,9 @@ app.get("/auth/google/callback", async (req, res) => {
   }
 });
 
-// יציאה לוגית (קליינט מוחק לוקאלית)
 app.post("/auth/logout", (_req, res) => res.json({ ok: true }));
 
-/* =======================
-   JWT utils
-   ======================= */
+// JWT utils
 app.post("/refresh", (req, res) => {
   const { refreshToken } = req.body || {};
   if (!refreshToken) return res.status(400).json({ error: "refreshToken required" });
@@ -301,9 +279,7 @@ app.get("/profile", requireAuth, (req, res) => {
   res.json({ message: "Protected route", userId: req.userId });
 });
 
-/* =======================
-   Jobs CRUD + Imports (ללא שינוי לוגי)
-   ======================= */
+// Jobs CRUD
 app.get("/jobs", requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -373,6 +349,7 @@ app.delete("/jobs/:id", requireAuth, async (req, res) => {
   }
 });
 
+// Imports
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 const allowedStatuses = new Set([
   "applied",
@@ -486,8 +463,6 @@ app.post("/import/csv", requireAuth, upload.single("file"), async (req, res) => 
   }
 });
 
-/* =======================
-   Start
-   ======================= */
+// Start
 const port = Number(process.env.PORT || 4000);
 app.listen(port, () => console.log(`API on http://localhost:${port}`));

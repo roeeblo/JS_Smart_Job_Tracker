@@ -154,7 +154,7 @@ function Editable({
 }
 
 /* =======================
-   Debounced textarea (for Notes)
+   Debounced TextArea
    ======================= */
 function DebouncedTextArea({ value, onSave, rows = 2, className = "" }) {
   const [draft, setDraft] = useState(value ?? "");
@@ -168,7 +168,7 @@ function DebouncedTextArea({ value, onSave, rows = 2, className = "" }) {
   const scheduleSave = useCallback(
     (v) => {
       if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => onSave(v), 600); // 0.6s after typing stops
+      timerRef.current = setTimeout(() => onSave(v), 600);
     },
     [onSave]
   );
@@ -189,9 +189,6 @@ function DebouncedTextArea({ value, onSave, rows = 2, className = "" }) {
   );
 }
 
-/* =======================
-   Single Job Row (memoized)
-   ======================= */
 const JobRow = memo(function JobRow({ j, updateField, removeJob }) {
   return (
     <div className="card">
@@ -294,7 +291,7 @@ export default function Dashboard() {
   useEffect(() => {
     (async () => {
       try {
-        await api.get("/profile"); // רק לבדיקה שה־token תקף
+        await api.get("/profile"); 
         setMessage(`Hello ${user?.name}`);
         const { data } = await api.get("/jobs");
         setJobs(data);
@@ -327,15 +324,12 @@ export default function Dashboard() {
     [form]
   );
 
-  // Update field (optimistic for snappy UI)
   const updateField = useCallback(async (id, field, value) => {
-    // Optimistic UI
     setJobs((prev) =>
       prev.map((j) => (j.id === id ? { ...j, [field]: value } : j))
     );
     try {
       const { data } = await api.put(`/jobs/${id}`, { [field]: value });
-      // Sync back with server (in case it normalized something)
       setJobs((prev) => prev.map((j) => (j.id === id ? data : j)));
     } catch (error) {
       console.error("Failed to update job:", error);

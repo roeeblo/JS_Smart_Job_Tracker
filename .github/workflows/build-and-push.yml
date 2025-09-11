@@ -46,13 +46,11 @@ jobs:
           file: ./server/Dockerfile
           platforms: linux/amd64
           push: true
-          # GHCR requires lowercase owner/name
           tags: |
             ghcr.io/${{ env.OWNER_LC }}/sjt-server:latest
             ghcr.io/${{ env.OWNER_LC }}/sjt-server:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # Work around first-push attestation hiccups
           provenance: false
 
       # ------- Client -------
