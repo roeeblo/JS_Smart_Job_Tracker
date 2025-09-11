@@ -1,14 +1,13 @@
 import React, { useState } from "react";
 import api from "../api";
-import { useAuth } from "../store/auth";
-import { useNavigate, Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 export default function Register() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
-  const setAuth = useAuth((s) => s.setAuth);
+  const [done, setDone] = useState(false);
   const nav = useNavigate();
 
   const submit = async (e) => {
@@ -24,9 +23,7 @@ export default function Register() {
     }
     try {
       await api.post("/users", { name, email, password });
-      const login = await api.post("/login", { email, password });
-      setAuth(login.data.user, login.data.accessToken, login.data.refreshToken);
-      nav("/");
+      setDone(true);
     } catch (e) {
       const msg =
         e?.response?.status === 409
@@ -36,41 +33,51 @@ export default function Register() {
     }
   };
 
+  if (done) {
+    return (
+      <div className="max-w-sm mx-auto mt-12 card">
+        <h1 className="text-2xl font-semibold mb-2">Check your email</h1>
+        <p className="muted">
+          We sent you a verification link. After you verify, you can{" "}
+          <button className="link" onClick={() => nav("/login")}>log in</button>.
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-md mx-auto mt-12 card">
-      <h1 className="panel-title mb-1">Create account</h1>
-      <p className="muted mb-6">Join Smart Job Tracker in seconds.</p>
-
-      {err && <div className="mb-3 text-red-400 mono">{err}</div>}
-
+    <div className="max-w-sm mx-auto mt-12 card">
+      <h1 className="text-2xl font-semibold mb-4">Create account</h1>
       <form onSubmit={submit} className="space-y-3">
         <input
-          className="input"
+          className="input w-full"
           placeholder="Name"
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
         <input
-          className="input"
+          className="input w-full"
           placeholder="Email"
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
         <input
-          className="input"
+          className="input w-full"
           placeholder="Password (min 6)"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
 
-        <button className="btn-primary w-full h-11 font-semibold">Sign up</button>
+        {err && <div className="text-red-400 text-sm">{err}</div>}
+
+        <button className="btn-primary w-full">Sign up</button>
       </form>
 
-      <div className="text-sm mt-4">
-        <span className="muted">Already have an account?</span>{" "}
-        <Link to="/login" className="text-primary hover:underline">Login</Link>
+      <div className="text-sm muted mt-3">
+        Already have an account?{" "}
+        <Link to="/login" className="link">Login</Link>
       </div>
     </div>
   );

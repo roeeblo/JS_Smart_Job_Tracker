@@ -1,4 +1,10 @@
-const nodemailer = require("nodemailer");
+// server/mailer.js
+let nodemailer = null;
+try {
+  nodemailer = require("nodemailer");
+} catch (_) {
+  nodemailer = null;
+}
 
 const {
   SMTP_HOST,
@@ -13,11 +19,9 @@ let transporter = null;
 
 function getTransporter() {
   if (transporter) return transporter;
-
-  if (!SMTP_HOST || !SMTP_PORT) {
+  if (!nodemailer || !SMTP_HOST || !SMTP_PORT) {
     return null;
   }
-
   transporter = nodemailer.createTransport({
     host: SMTP_HOST,
     port: Number(SMTP_PORT),
@@ -27,7 +31,6 @@ function getTransporter() {
         ? { user: SMTP_USER || undefined, pass: SMTP_PASS || undefined }
         : undefined,
   });
-
   return transporter;
 }
 

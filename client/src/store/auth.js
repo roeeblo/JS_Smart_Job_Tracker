@@ -1,32 +1,30 @@
 import { create } from "zustand";
 
-const KEY = "sjt-auth";
+const LS_KEY = "sjt-auth";
 
 function load() {
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return { user: null, accessToken: null, refreshToken: null };
-    return JSON.parse(raw);
-  } catch {
-    return { user: null, accessToken: null, refreshToken: null };
-  }
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return { user: null, accessToken: "", refreshToken: "" };
 }
 
 export const useAuth = create((set, get) => ({
   ...load(),
   setAuth: (user, accessToken, refreshToken) => {
-    const state = { user, accessToken, refreshToken };
-    localStorage.setItem(KEY, JSON.stringify(state));
-    set(state);
+    const next = { user, accessToken, refreshToken };
+    localStorage.setItem(LS_KEY, JSON.stringify(next));
+    set(next);
   },
   setAccessTokenOnly: (accessToken) => {
-    const { user, refreshToken } = get();
-    const state = { user, accessToken, refreshToken };
-    localStorage.setItem(KEY, JSON.stringify(state));
-    set({ accessToken });
+    const cur = get();
+    const next = { ...cur, accessToken };
+    localStorage.setItem(LS_KEY, JSON.stringify(next));
+    set(next);
   },
   logout: () => {
-    localStorage.removeItem(KEY);
-    set({ user: null, accessToken: null, refreshToken: null });
+    localStorage.removeItem(LS_KEY);
+    set({ user: null, accessToken: "", refreshToken: "" });
   },
 }));

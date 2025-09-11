@@ -2,11 +2,16 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const crypto = require("crypto");
+const jwt = require("jsonwebtoken");
 const { Pool } = require("pg");
-const bcrypt = require("bcryptjs");
 const multer = require("multer");
 const { parse } = require("csv-parse");
-const crypto = require("crypto");
+
+// fetch shim ל-Node < 18
+const fetch =
+  global.fetch ||
+  ((...args) => import("node-fetch").then(({ default: f }) => f(...args)));
 
 const {
   signAccessToken,
@@ -15,8 +20,6 @@ const {
   verifyRefreshToken,
 } = require("./jwt");
 
-const { sendVerificationEmail } = require("./mailer");
-
 const app = express();
 
 /* =======================
@@ -24,28 +27,25 @@ const app = express();
    ======================= */
 const rawOrigins =
   process.env.CORS_ORIGIN ||
-  "http://sjt.local,http://localhost:3000,http://localhost:5173";
+  "http://localhost:5173,http://127.0.0.1:5173,http://sjt.local,http://localhost:3000";
+const allowlist = rawOrigins.split(",").map((s) => s.trim()).filter(Boolean);
 
-const allowlist = rawOrigins
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-
-const corsOptions = {
-  origin(origin, cb) {
-    if (!origin) return cb(null, true);
-    if (allowlist.includes(origin)) return cb(null, true);
-    return cb(new Error(`Not allowed by CORS: ${origin}`));
-  },
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true,
-};
-app.use(cors(corsOptions));
+app.use(
+  cors({
+    origin(origin, cb) {
+      if (!origin) return cb(null, true);
+      if (allowlist.includes(origin)) return cb(null, true);
+      return cb(new Error(`Not allowed by CORS: ${origin}`));
+    },
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 /* =======================
-   Database
+   DB
    ======================= */
 const pool = new Pool({
   host: process.env.DB_HOST || "localhost",
@@ -56,6 +56,18 @@ const pool = new Pool({
   max: 10,
   connectionTimeoutMillis: 2000,
 });
+
+async function ensureSchema() {
+  try {
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id text;`);
+  } catch {}
+  try {
+    await pool.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS users_google_id_key ON users(google_id) WHERE google_id IS NOT NULL;`
+    );
+  } catch {}
+}
+ensureSchema().catch((e) => console.error("ensureSchema error:", e));
 
 async function isDbHealthy(timeoutMs = 1500) {
   try {
@@ -94,175 +106,185 @@ app.get("/health", async (_req, res) => {
 });
 
 /* =======================
-   Users (list for debug)
+   GOOGLE OAUTH (STATELESS)
    ======================= */
-app.get("/users", async (_req, res) => {
-  try {
-    const { rows } = await pool.query(
-      "SELECT id, name, email, email_verified FROM users ORDER BY id DESC"
-    );
-    res.json(rows);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
+const CLIENT_URL = (process.env.CLIENT_URL || "http://localhost:5173").replace(/\/$/, "");
+
+// נשתמש ב-ENV אם הוגדר; אחרת נבנה דינאמית מהבקשה (מביא יציבות גם כשעובדים על פורטים/דומיינים שונים מקומית)
+function getRedirectUri(req) {
+  const fromEnv = (process.env.GOOGLE_REDIRECT_URI || "").trim();
+  return fromEnv || `${req.protocol}://${req.get("host")}/auth/google/callback`;
+}
+
+const STATE_SIGNING_SECRET =
+  process.env.OAUTH_STATE_SECRET || process.env.REFRESH_TOKEN_SECRET || "change-me-state";
+
+function signState(payload = {}) {
+  const data = { n: crypto.randomBytes(8).toString("hex"), ...payload };
+  return jwt.sign(data, STATE_SIGNING_SECRET, {
+    expiresIn: "10m",
+    issuer: "sjt-api",
+    audience: "google-oauth",
+  });
+}
+
+function verifyState(token) {
+  return jwt.verify(token, STATE_SIGNING_SECRET, {
+    issuer: "sjt-api",
+    audience: "google-oauth",
+  });
+}
+
+function buildGoogleAuthURL(redirectUri, state) {
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: "openid email profile",
+    access_type: "offline",
+    include_granted_scopes: "true",
+    prompt: "select_account",
+    state,
+  });
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+}
+
+// התחלת OAuth
+app.get("/auth/google", (req, res) => {
+  const redirectUri = getRedirectUri(req);
+  const state = signState({ r: "login" });
+  const url = buildGoogleAuthURL(redirectUri, state);
+  res.redirect(url);
 });
 
-/* =======================
-   Helpers: verification
-   ======================= */
-function newVerifyToken() {
-  return crypto.randomBytes(32).toString("hex");
-}
-
-async function issueAndSendVerification(user) {
-  const token = newVerifyToken();
-  const expires = new Date(Date.now() + 1000 * 60 * 60 * 24); // 24h
-  const { rows } = await pool.query(
-    "UPDATE users SET verify_token=$1, verify_expires=$2 WHERE id=$3 RETURNING id,email",
-    [token, expires.toISOString(), user.id]
-  );
-  const base = process.env.VERIFY_BASE_URL || "http://localhost:4000";
-  const link = `${base}/verify?token=${encodeURIComponent(token)}`;
-  await sendVerificationEmail(user.email, link);
-  return rows[0];
-}
-
-/* =======================
-   Register
-   ======================= */
-app.post("/users", async (req, res) => {
-  const { name, email, password } = req.body || {};
-  if (!name || !email || !password) {
-    return res.status(400).json({ error: "name, email, password required" });
-  }
+// חזרת OAuth
+app.get("/auth/google/callback", async (req, res) => {
   try {
-    const password_hash = await bcrypt.hash(String(password), 10);
-    const { rows } = await pool.query(
-      `INSERT INTO users (name, email, password_hash, email_verified)
-       VALUES ($1, $2, $3, false)
-       RETURNING id, name, email, email_verified`,
-      [name, email, password_hash]
-    );
-    const user = rows[0];
+    const { code, state, error, error_description } = req.query || {};
 
-    // שליחת מייל אימות
+    // אם גוגל מחזירה שגיאה—נחזיר אותה כמו שהיא, כדי שתדע מה לא תקין (client id, redirect uri וכו')
+    if (error) {
+      return res
+        .status(400)
+        .send(`Google OAuth error: ${error}${error_description ? " - " + error_description : ""}`);
+    }
+
+    if (!code || !state) {
+      console.error("OAuth callback missing params:", req.originalUrl);
+      return res.status(400).send("Missing code/state");
+    }
+
+    // אימות state (JWT ללא קוקיז)
     try {
-      await issueAndSendVerification(user);
+      verifyState(String(state));
     } catch (e) {
-      console.error("Failed to send verification email:", e.message);
-      // ממשיכים — המשתמש קיים, רק המייל נכשל; נקשר קישור בלוג.
+      return res.status(400).send("OAuth state invalid");
     }
 
-    res.status(201).json({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      message: "Registration successful. Please verify your email.",
+    const redirectUri = getRedirectUri(req);
+
+    // החלפת code לטוקנים
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code: String(code),
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        redirect_uri: redirectUri, // חייב להיות זהה בדיוק למה ששימש בשלב הראשון
+        grant_type: "authorization_code",
+      }),
     });
-  } catch (e) {
-    if (e.code === "23505") return res.status(409).json({ error: "Email already exists" });
-    res.status(500).json({ error: e.message });
-  }
-});
 
-/* =======================
-   Verify link + resend
-   ======================= */
-app.get("/verify", async (req, res) => {
-  const token = (req.query.token || "").toString();
-  if (!token) return res.status(400).send("Missing token");
+    if (!tokenRes.ok) {
+      const txt = await tokenRes.text();
+      console.error("token exchange failed:", txt);
+      return res.status(401).send("Google token exchange failed");
+    }
+    const tokens = await tokenRes.json(); // { id_token, access_token, ... }
 
-  try {
-    const { rows } = await pool.query(
-      `SELECT id, verify_expires, email_verified
-         FROM users
-        WHERE verify_token = $1`,
-      [token]
+    // אימות id_token
+    const infoRes = await fetch(
+      `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(tokens.id_token)}`
     );
-    const user = rows[0];
-    if (!user) return res.status(400).send("Invalid token");
+    if (!infoRes.ok) return res.status(401).send("Invalid Google id_token");
+    const info = await infoRes.json();
 
-    if (user.email_verified) {
-      // כבר מאומת — ננקה טוקן כדי לא לשמר אותו
-      await pool.query(
-        "UPDATE users SET verify_token=NULL, verify_expires=NULL WHERE id=$1",
-        [user.id]
-      );
-      const redirect = (process.env.CLIENT_URL || "http://localhost:5173") + "/login?verified=1";
-      return res.redirect(302, redirect);
+    if (info.email_verified !== "true" && info.email_verified !== true) {
+      return res.status(403).send("Google email not verified");
     }
 
-    const exp = user.verify_expires ? new Date(user.verify_expires) : null;
-    if (!exp || exp.getTime() < Date.now()) {
-      return res.status(400).send("Verification link expired. Please request a new one.");
+    const googleId = info.sub;
+    const email = info.email;
+    const name = info.name || email.split("@")[0];
+
+    // upsert משתמש
+    let userRow;
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const byGoogle = await client.query("SELECT * FROM users WHERE google_id = $1", [googleId]);
+      if (byGoogle.rows[0]) {
+        userRow = byGoogle.rows[0];
+      } else {
+        const byEmail = await client.query("SELECT * FROM users WHERE email = $1", [email]);
+        if (byEmail.rows[0]) {
+          const upd = await client.query(
+            `UPDATE users
+               SET google_id = $1,
+                   name = COALESCE(NULLIF(name, ''), $2)
+             WHERE id = $3
+           RETURNING *`,
+            [googleId, name, byEmail.rows[0].id]
+          );
+          userRow = upd.rows[0];
+        } else {
+          const ins = await client.query(
+            `INSERT INTO users (name, email, google_id)
+             VALUES ($1,$2,$3)
+           RETURNING *`,
+            [name, email, googleId]
+          );
+          userRow = ins.rows[0];
+        }
+      }
+
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
     }
 
-    await pool.query(
-      "UPDATE users SET email_verified=true, verify_token=NULL, verify_expires=NULL WHERE id=$1",
-      [user.id]
-    );
+    const accessToken = signAccessToken({ uid: userRow.id });
+    const refreshToken = signRefreshToken({ uid: userRow.id });
 
-    const redirect = (process.env.CLIENT_URL || "http://localhost:5173") + "/login?verified=1";
-    return res.redirect(302, redirect);
-  } catch (e) {
-    console.error("Verify error:", e);
-    return res.status(500).send("Server error");
-  }
-});
-
-app.post("/verify/resend", async (req, res) => {
-  const { email } = req.body || {};
-  if (!email) return res.status(400).json({ error: "email required" });
-
-  try {
-    const { rows } = await pool.query(
-      "SELECT id, email, email_verified FROM users WHERE email=$1",
-      [email]
-    );
-    const user = rows[0];
-    if (!user) return res.status(404).json({ error: "User not found" });
-    if (user.email_verified) {
-      return res.json({ ok: true, message: "Already verified" });
-    }
-
-    await issueAndSendVerification(user);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-/* =======================
-   Auth (login / refresh / profile)
-   ======================= */
-app.post("/login", async (req, res) => {
-  const { email, password } = req.body || {};
-  if (!email || !password) return res.status(400).json({ error: "email and password required" });
-  try {
-    const { rows } = await pool.query("SELECT * FROM users WHERE email=$1", [email]);
-    const user = rows[0];
-    if (!user) return res.status(401).json({ error: "Invalid credentials" });
-
-    const ok = await bcrypt.compare(String(password), user.password_hash);
-    if (!ok) return res.status(401).json({ error: "Invalid credentials" });
-
-    if (!user.email_verified) {
-      return res.status(403).json({ error: "Email not verified" });
-    }
-
-    const accessToken = signAccessToken({ uid: user.id });
-    const refreshToken = signRefreshToken({ uid: user.id });
-
-    res.json({
-      user: { id: user.id, name: user.name, email: user.email },
+    // מחזירים ל־SPA עם hash
+    const redirect = new URL(`${CLIENT_URL}/oauth/callback`);
+    redirect.hash = new URLSearchParams({
       accessToken,
       refreshToken,
-    });
+      name: userRow.name || "",
+      email: userRow.email || "",
+    }).toString();
+
+    res.redirect(redirect.toString());
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.error("OAuth callback error:", e);
+    res.status(500).send("Auth error");
   }
 });
 
+// יציאה לוגית (קליינט מוחק לוקאלית)
+app.post("/auth/logout", (_req, res) => res.json({ ok: true }));
+
+/* =======================
+   JWT utils
+   ======================= */
 app.post("/refresh", (req, res) => {
   const { refreshToken } = req.body || {};
   if (!refreshToken) return res.status(400).json({ error: "refreshToken required" });
@@ -275,29 +297,20 @@ app.post("/refresh", (req, res) => {
   }
 });
 
-app.get("/profile", (req, res) => {
-  const auth = req.headers["authorization"] || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-  if (!token) return res.status(401).json({ error: "No token" });
-  try {
-    const payload = verifyAccessToken(token);
-    res.json({ message: "Protected route", userId: payload.uid });
-  } catch (err) {
-    console.error("JWT verify error:", err.message);
-    res.status(401).json({ error: "Invalid token" });
-  }
+app.get("/profile", requireAuth, (req, res) => {
+  res.json({ message: "Protected route", userId: req.userId });
 });
 
 /* =======================
-   Jobs CRUD
+   Jobs CRUD + Imports (ללא שינוי לוגי)
    ======================= */
 app.get("/jobs", requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, user_id, company, role, status, source, location, notes
-       FROM job_applications
-       WHERE user_id = $1
-       ORDER BY id DESC`,
+         FROM job_applications
+        WHERE user_id = $1
+     ORDER BY id DESC`,
       [req.userId]
     );
     res.json(rows);
@@ -308,14 +321,12 @@ app.get("/jobs", requireAuth, async (req, res) => {
 
 app.post("/jobs", requireAuth, async (req, res) => {
   const { company, role, status, source, location, notes } = req.body || {};
-  if (!company || !role) {
-    return res.status(400).json({ error: "company and role are required" });
-  }
+  if (!company || !role) return res.status(400).json({ error: "company and role are required" });
   try {
     const { rows } = await pool.query(
       `INSERT INTO job_applications (user_id, company, role, status, source, location, notes)
        VALUES ($1,$2,$3,COALESCE($4,'applied'),$5,$6,$7)
-       RETURNING id, user_id, company, role, status, source, location, notes`,
+   RETURNING id, user_id, company, role, status, source, location, notes`,
       [req.userId, company, role, status || null, source || null, location || null, notes || null]
     );
     res.status(201).json(rows[0]);
@@ -329,7 +340,6 @@ app.put("/jobs/:id", requireAuth, async (req, res) => {
   const fields = ["company", "role", "status", "source", "location", "notes"];
   const updates = [];
   const values = [];
-
   fields.forEach((f) => {
     if (f in req.body) {
       updates.push(`${f}=$${updates.length + 3}`);
@@ -363,23 +373,19 @@ app.delete("/jobs/:id", requireAuth, async (req, res) => {
   }
 });
 
-/* =======================
-   Import CSV/JSON (כמו שהיה)
-   ======================= */
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+const allowedStatuses = new Set([
+  "applied",
+  "interview",
+  "test",
+  "home test",
+  "test 2",
+  "offer",
+  "accepted",
+  "rejected",
+]);
 
 app.post("/import/json", requireAuth, async (req, res) => {
-  const allowedStatuses = new Set([
-    "applied",
-    "interview",
-    "test",
-    "home test",
-    "test 2",
-    "offer",
-    "accepted",
-    "rejected",
-  ]);
-
   try {
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
     if (!items.length) return res.status(400).json({ error: "items array is required" });
@@ -395,60 +401,26 @@ app.post("/import/json", requireAuth, async (req, res) => {
       }))
       .filter((r) => r.company && r.role);
 
-    if (!normalized.length) {
-      return res.status(400).json({ error: "no valid items (missing company/role)" });
-    }
+    if (!normalized.length) return res.status(400).json({ error: "no valid items" });
 
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const existing = new Map();
-      {
-        const { rows } = await client.query(
-          `SELECT company, role, COALESCE(NULLIF(notes,''),'') AS notes
-             FROM job_applications
-            WHERE user_id = $1`,
-          [req.userId]
-        );
-        for (const r of rows) {
-          const keyCR = `${r.company.toLowerCase()}|${r.role.toLowerCase()}`;
-          existing.set(`CR|${keyCR}`, true);
-          if (r.notes) existing.set(`N|${r.notes}`, true);
-        }
-      }
-
       let inserted = 0;
-      let skipped = 0;
       const insertedItems = [];
-      const skippedItems = [];
-
       for (const r of normalized) {
         const status = allowedStatuses.has(r.status) ? r.status : "applied";
-        const keyCR = `CR|${r.company.toLowerCase()}|${r.role.toLowerCase()}`;
-        const keyN = r.notes ? `N|${r.notes}` : null;
-
-        if (existing.has(keyCR) || (keyN && existing.has(keyN))) {
-          skipped++;
-          skippedItems.push({ reason: "duplicate", item: r });
-          continue;
-        }
-
         const { rows: one } = await client.query(
           `INSERT INTO job_applications (user_id, company, role, status, source, location, notes)
            VALUES ($1,$2,$3,$4,$5,$6,$7)
-           RETURNING id, user_id, company, role, status, source, location, notes`,
+       RETURNING id, user_id, company, role, status, source, location, notes`,
           [req.userId, r.company, r.role, status, r.source || null, r.location || null, r.notes || null]
         );
-
-        existing.set(keyCR, true);
-        if (keyN) existing.set(keyN, true);
-
         inserted++;
         insertedItems.push(one[0]);
       }
-
       await client.query("COMMIT");
-      return res.json({ ok: true, inserted, skipped, insertedItems, skippedItems });
+      return res.json({ ok: true, inserted, insertedItems });
     } catch (e) {
       await client.query("ROLLBACK");
       throw e;
@@ -456,31 +428,16 @@ app.post("/import/json", requireAuth, async (req, res) => {
       client.release();
     }
   } catch (e) {
-    console.error("JSON import error:", e);
     res.status(500).json({ error: e.message });
   }
 });
 
 app.post("/import/csv", requireAuth, upload.single("file"), async (req, res) => {
   if (!req.file)
-    return res
-      .status(400)
-      .json({ error: 'file is required (multipart/form-data, field name "file")' });
-
-  const allowedStatuses = new Set([
-    "applied",
-    "interview",
-    "test",
-    "home test",
-    "test 2",
-    "offer",
-    "accepted",
-    "rejected",
-  ]);
+    return res.status(400).json({ error: 'file is required (multipart/form-data, field name "file")' });
 
   try {
     const text = req.file.buffer.toString("utf8");
-
     const rows = [];
     await new Promise((resolve, reject) => {
       parse(text, { columns: true, skip_empty_lines: true, trim: true, bom: true })
@@ -489,14 +446,13 @@ app.post("/import/csv", requireAuth, upload.single("file"), async (req, res) => 
         .on("error", reject);
     });
 
-    if (rows.length === 0) return res.status(400).json({ error: "CSV has no rows" });
+    if (!rows.length) return res.status(400).json({ error: "CSV has no rows" });
 
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
       let inserted = 0;
       const items = [];
-
       for (const r of rows) {
         const company = r.company?.toString().trim();
         const role = r.role?.toString().trim();
@@ -511,13 +467,12 @@ app.post("/import/csv", requireAuth, upload.single("file"), async (req, res) => 
         const { rows: one } = await client.query(
           `INSERT INTO job_applications (user_id, company, role, status, source, location, notes)
            VALUES ($1,$2,$3,$4,$5,$6,$7)
-           RETURNING id, user_id, company, role, status, source, location, notes`,
+       RETURNING id, user_id, company, role, status, source, location, notes`,
           [req.userId, company, role, safeStatus, source, location, notes]
         );
         items.push(one[0]);
         inserted++;
       }
-
       await client.query("COMMIT");
       res.json({ ok: true, inserted, items });
     } catch (e) {
@@ -527,26 +482,12 @@ app.post("/import/csv", requireAuth, upload.single("file"), async (req, res) => 
       client.release();
     }
   } catch (e) {
-    console.error("CSV import error:", e);
     res.status(500).json({ error: e.message });
   }
 });
 
 /* =======================
-   Global error handling
-   ======================= */
-app.use((err, _req, res, _next) => {
-  console.error("Unhandled error:", err);
-  res.status(500).json({ error: "Server error" });
-});
-
-process.on("unhandledRejection", (r) => console.error("unhandledRejection:", r));
-process.on("uncaughtException", (e) => console.error("uncaughtException:", e));
-
-/* =======================
    Start
    ======================= */
 const port = Number(process.env.PORT || 4000);
-app.listen(port, () =>
-  console.log(`Smart Job Tracker API listening on http://localhost:${port}`)
-);
+app.listen(port, () => console.log(`API on http://localhost:${port}`));

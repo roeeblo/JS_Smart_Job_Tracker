@@ -1,14 +1,9 @@
-// client/src/api.js
 import axios from "axios";
 import { useAuth } from "./store/auth";
 
-// בזמן dev דבר ישירות עם השרת, ובprod השתמש בנתיב יחסי /api
-const baseURL =
-  import.meta.env.DEV
-    ? "http://localhost:4000"
-    : (import.meta.env.VITE_API_URL || "/api");
-
-const api = axios.create({ baseURL });
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || "/api",
+});
 
 api.interceptors.request.use((config) => {
   const { accessToken } = useAuth.getState();

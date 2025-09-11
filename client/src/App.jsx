@@ -2,45 +2,33 @@ import React from "react";
 import { Routes, Route, Navigate, Link } from "react-router-dom";
 import { useAuth } from "./store/auth";
 import Login from "./pages/Login";
-import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
-import ImportCSV from "./pages/ImportCSV";
+import OAuthCallback from "./pages/OAuthCallback";
 
 export default function App() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
 
   return (
-    <div className="min-h-screen relative">
-      {/* Grid background */}
-      <div className="pointer-events-none absolute inset-0 bg-grid"></div>
-
-      {/* NAV */}
-      <nav className="nav sticky top-0 z-30">
-        <div className="container-shell py-3 flex items-center justify-between">
-          <Link to="/" className="brand">SJT</Link>
-          <div className="flex items-center gap-2">
-            {!user && (
-              <>
-                <Link to="/login" className="btn">Login</Link>
-                <Link to="/register" className="btn-primary px-5 py-2 rounded-xl">Register</Link>
-              </>
-            )}
-            {user && (
-              <>
-                <Link to="/import" className="btn">Import</Link>
-              </>
-            )}
-          </div>
+    <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-950 to-black text-slate-100">
+      <nav className="backdrop-blur bg-white/5 border-b border-white/10 p-4 flex justify-between">
+        <Link to="/" className="font-bold">Smart Job Tracker</Link>
+        <div className="space-x-4">
+          {!user && <Link to="/login" className="text-cyan-300">Login</Link>}
+          {user && (
+            <>
+              <span className="text-slate-300">Hi, {user.name}</span>
+              <button className="text-rose-300" onClick={logout}>Logout</button>
+            </>
+          )}
         </div>
       </nav>
 
-      {/* MAIN */}
-      <main className="container-shell py-6">
+      <main className="p-4">
         <Routes>
           <Route path="/" element={user ? <Dashboard /> : <Navigate to="/login" />} />
-          <Route path="/import" element={user ? <ImportCSV /> : <Navigate to="/login" />} />
-          <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
-          <Route path="/register" element={!user ? <Register /> : <Navigate to="/" />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/oauth/callback" element={<OAuthCallback />} />
+          <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </main>
     </div>
