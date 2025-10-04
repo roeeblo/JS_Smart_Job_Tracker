@@ -1,4 +1,5 @@
 # 📌 Smart Job Tracker (SJT)
+<img width="1053" height="1272" alt="image" src="https://github.com/user-attachments/assets/6022eeb7-83ad-4c65-a2f5-e6774d37cdf0" />
 
 Fullstack project to track job applications.  
 Built as a portfolio piece to demonstrate **development + DevOps skills**.
@@ -23,7 +24,9 @@ Built as a portfolio piece to demonstrate **development + DevOps skills**.
 - Docker (multi-stage builds)  
 - GitHub Container Registry (GHCR)  
 - GitHub Actions  
-- Kubernetes (Minikube)  
+- Kubernetes (Minikube)
+- 
+<img width="1052" height="587" alt="image" src="https://github.com/user-attachments/assets/4323ddee-d15f-42d3-b462-ed5ca402e6b7" />
 
 ---
 
