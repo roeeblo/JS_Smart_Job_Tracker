@@ -1,4 +1,4 @@
-# 📌 Smart Job Tracker (SJT)
+# Smart Job Tracker (SJT)
 <img width="1053" height="1272" alt="image" src="https://github.com/user-attachments/assets/6022eeb7-83ad-4c65-a2f5-e6774d37cdf0" />
 
 Fullstack project to track job applications.  
@@ -59,7 +59,7 @@ Built as a portfolio piece to demonstrate **development + DevOps skills**.
   - ConfigMap + Secrets  
   - Horizontal Pod Autoscaler (HPA)  
   - PodDisruptionBudget (PDB)  
-  - Auto-healing via ReplicaSets + `rollout restart`  
+  - Auto-healing ReplicaSets + `rollout restart`  
 
 ---
 
