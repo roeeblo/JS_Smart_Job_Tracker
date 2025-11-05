@@ -25,8 +25,6 @@ Built as a portfolio piece to demonstrate **development + DevOps skills**.
 - GitHub Container Registry (GHCR)  
 - GitHub Actions  
 - Kubernetes (Minikube)
-- 
-<img width="1052" height="587" alt="image" src="https://github.com/user-attachments/assets/4323ddee-d15f-42d3-b462-ed5ca402e6b7" />
 
 ---
 
@@ -62,5 +60,7 @@ Built as a portfolio piece to demonstrate **development + DevOps skills**.
   - Auto-healing ReplicaSets + `rollout restart`  
 
 ---
+
+<img width="1052" height="587" alt="image" src="https://github.com/user-attachments/assets/4323ddee-d15f-42d3-b462-ed5ca402e6b7" />
 
 
