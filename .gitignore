@@ -10,6 +10,14 @@ build/
 # Env
 .env
 .env.local
+.env.*
+server/.env
+client/.env
+client/.env.*
+server/.env.*
+!.env.example
+!server/.env.example
+!client/.env.example
 
 # Docker
 db-data/

@@ -1,10 +1,5 @@
-import React, {
-  useEffect,
-  useMemo,
-  useState,
-  useCallback,
-  memo,
-} from "react";
+// client/src/pages/Dashboard.jsx
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import api from "../api";
 import { useAuth } from "../store/auth";
 import { PieChart, Pie, Cell, Legend, ResponsiveContainer } from "recharts";
@@ -90,7 +85,7 @@ function downloadBlob(content, filename, type) {
 }
 
 /* =======================
-   Inline editable
+   Editable (inline)
    ======================= */
 function Editable({
   value,
@@ -99,6 +94,7 @@ function Editable({
   className = "",
   textClassName = "",
   title = "",
+  disabled = false,
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value || "");
@@ -108,6 +104,7 @@ function Editable({
   }, [value, editing]);
 
   const commit = async () => {
+    if (disabled) return setEditing(false);
     const v = (draft || "").trim();
     if (v !== (value || "")) {
       await onSave(v);
@@ -124,9 +121,9 @@ function Editable({
     return (
       <button
         type="button"
-        onClick={() => setEditing(true)}
-        className={`px-1 py-0.5 rounded hover:bg-slate-800/60 text-left ${textClassName}`}
-        title={title ? `${title} — click to edit` : "Click to edit"}
+        onClick={() => !disabled && setEditing(true)}
+        className={`px-1 py-0.5 rounded ${disabled ? "opacity-60 cursor-not-allowed" : "hover:bg-slate-800/60"} text-left ${textClassName}`}
+        title={title ? `${title}${disabled ? "" : " — click to edit"}` : disabled ? "" : "Click to edit"}
       >
         {value ? (
           <span className="underline decoration-dotted underline-offset-2">{value}</span>
@@ -140,7 +137,8 @@ function Editable({
   return (
     <input
       autoFocus
-      className={`input ${className}`}
+      disabled={disabled}
+      className={`input ${disabled ? "opacity-60 cursor-not-allowed" : ""} ${className}`}
       value={draft}
       placeholder={placeholder}
       onChange={(e) => setDraft(e.target.value)}
@@ -154,125 +152,20 @@ function Editable({
 }
 
 /* =======================
-   Debounced TextArea
+   Demo data for Guest mode
    ======================= */
-function DebouncedTextArea({ value, onSave, rows = 2, className = "" }) {
-  const [draft, setDraft] = useState(value ?? "");
-  const timerRef = React.useRef(null);
-
-  // sync external updates
-  useEffect(() => {
-    setDraft(value ?? "");
-  }, [value]);
-
-  const scheduleSave = useCallback(
-    (v) => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => onSave(v), 600);
-    },
-    [onSave]
-  );
-
-  return (
-    <textarea
-      className={`textarea w-full text-sm ${className}`}
-      rows={rows}
-      placeholder="Notes..."
-      value={draft}
-      onChange={(e) => {
-        const v = e.target.value;
-        setDraft(v);
-        scheduleSave(v);
-      }}
-      onBlur={() => onSave(draft)}
-    />
-  );
-}
-
-const JobRow = memo(function JobRow({ j, updateField, removeJob }) {
-  return (
-    <div className="card">
-      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-        <div className="min-w-0">
-          {/* Title line */}
-          <div className="font-medium flex flex-wrap items-center gap-x-2 gap-y-1">
-            <Editable
-              value={j.company || ""}
-              placeholder="(company)"
-              title="Company"
-              textClassName="text-base"
-              onSave={(v) => updateField(j.id, "company", v)}
-            />
-            <span className="muted">—</span>
-            <Editable
-              value={j.role || ""}
-              placeholder="(role)"
-              title="Role"
-              textClassName="text-base"
-              onSave={(v) => updateField(j.id, "role", v)}
-            />
-          </div>
-
-          {/* Meta */}
-          <div className="text-sm text-slate-400 flex flex-wrap items-center gap-2 mt-1">
-            <span>Source:</span>
-            <Editable
-              value={j.source || ""}
-              placeholder="(source)"
-              title="Source"
-              onSave={(v) => updateField(j.id, "source", v)}
-            />
-            <span>·</span>
-            <span>Location:</span>
-            <Editable
-              value={j.location || ""}
-              placeholder="(location)"
-              title="Location"
-              onSave={(v) => updateField(j.id, "location", v)}
-            />
-          </div>
-
-          {/* Notes (debounced) */}
-          <div className="mt-2">
-            <DebouncedTextArea
-              value={j.notes || ""}
-              onSave={(v) => updateField(j.id, "notes", v)}
-            />
-          </div>
-        </div>
-
-        {/* Quick actions */}
-        <div className="flex flex-col items-stretch gap-2 w-full md:w-auto">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-slate-400">Status:</span>
-            <select
-              className="select text-sm"
-              value={j.status}
-              onChange={(e) => updateField(j.id, "status", e.target.value)}
-            >
-              {STATUS_OPTIONS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={() => removeJob(j.id)}
-              className="btn text-red-300 hover:text-red-200"
-            >
-              Delete
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-});
+const DEMO_JOBS = [
+  { id: -1, company: "StellarAI", role: "Frontend Engineer", status: "applied", source: "LinkedIn", location: "Remote", notes: "Nice stack: React + TS" },
+  { id: -2, company: "Nimbus Cloud", role: "DevOps Engineer", status: "interview", source: "Company site", location: "Tel Aviv", notes: "K8s + Terraform" },
+  { id: -3, company: "Orbital", role: "Data Analyst", status: "offer", source: "Referral", location: "Hybrid", notes: "SQL + Python" },
+  { id: -4, company: "QuantumX", role: "Full-stack", status: "rejected", source: "LinkedIn", location: "Remote", notes: "Too senior" },
+];
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
   const [message, setMessage] = useState("Loading...");
   const [jobs, setJobs] = useState([]);
+  const [guest, setGuest] = useState(false);
 
   const [form, setForm] = useState({
     company: "",
@@ -287,16 +180,20 @@ export default function Dashboard() {
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  // Load initial
+  // Load initial (with graceful guest fallback)
   useEffect(() => {
     (async () => {
       try {
-        await api.get("/profile"); 
+        const prof = await api.get("/profile");
         setMessage(`Hello ${user?.name}`);
         const { data } = await api.get("/jobs");
         setJobs(data);
+        setGuest(false);
       } catch (e) {
-        setMessage(e?.response?.data?.error || "Auth failed");
+        // Guest mode
+        setGuest(true);
+        setMessage("Guest mode — demo data");
+        setJobs(DEMO_JOBS);
       }
     })();
   }, [user?.name]);
@@ -305,6 +202,7 @@ export default function Dashboard() {
   const addJob = useCallback(
     async (e) => {
       e.preventDefault();
+      if (guest) return alert("Login required to add jobs (guest mode).");
       if (!form.company.trim() || !form.role.trim()) return;
       try {
         const { data } = await api.post("/jobs", form);
@@ -321,23 +219,23 @@ export default function Dashboard() {
         console.error("Failed to add job:", error);
       }
     },
-    [form]
+    [form, guest]
   );
 
+  // Update field
   const updateField = useCallback(async (id, field, value) => {
-    setJobs((prev) =>
-      prev.map((j) => (j.id === id ? { ...j, [field]: value } : j))
-    );
+    if (guest) return; // disabled in guest mode
     try {
       const { data } = await api.put(`/jobs/${id}`, { [field]: value });
       setJobs((prev) => prev.map((j) => (j.id === id ? data : j)));
     } catch (error) {
       console.error("Failed to update job:", error);
     }
-  }, []);
+  }, [guest]);
 
   // Delete
   const removeJob = useCallback(async (id) => {
+    if (guest) return;
     if (!window.confirm("Delete this job?")) return;
     try {
       await api.delete(`/jobs/${id}`);
@@ -345,7 +243,7 @@ export default function Dashboard() {
     } catch (error) {
       console.error("Failed to delete job:", error);
     }
-  }, []);
+  }, [guest]);
 
   // filtered list
   const filtered = useMemo(() => {
@@ -417,7 +315,7 @@ export default function Dashboard() {
           <div className="text-lg font-semibold tracking-tight">{message}</div>
         </div>
         <div className="flex gap-2">
-          <button onClick={logout} className="btn">Logout</button>
+          {!guest && <button onClick={logout} className="btn">Logout</button>}
         </div>
       </div>
 
@@ -545,7 +443,12 @@ export default function Dashboard() {
           onChange={(e) => setForm((s) => ({ ...s, notes: e.target.value }))}
         />
         <div className="text-right">
-          <button className="btn-primary px-5 py-2 rounded-xl">Add</button>
+          <button
+            className={`px-5 py-2 rounded-xl ${guest ? "btn opacity-60 cursor-not-allowed" : "btn-primary"}`}
+            disabled={guest}
+          >
+            {guest ? "Login to add" : "Add"}
+          </button>
         </div>
       </form>
 
@@ -556,14 +459,99 @@ export default function Dashboard() {
         )}
 
         {filtered.map((j) => (
-          <JobRow
-            key={j.id}
-            j={j}
-            updateField={updateField}
-            removeJob={removeJob}
-          />
+          <div key={j.id} className="card">
+            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+              <div className="min-w-0">
+                {/* Title line */}
+                <div className="font-medium flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <Editable
+                    value={j.company || ""}
+                    placeholder="(company)"
+                    title="Company"
+                    textClassName="text-base"
+                    onSave={(v) => updateField(j.id, "company", v)}
+                    disabled={guest}
+                  />
+                  <span className="muted">—</span>
+                  <Editable
+                    value={j.role || ""}
+                    placeholder="(role)"
+                    title="Role"
+                    textClassName="text-base"
+                    onSave={(v) => updateField(j.id, "role", v)}
+                    disabled={guest}
+                  />
+                </div>
+
+                {/* Meta */}
+                <div className="text-sm text-slate-400 flex flex-wrap items-center gap-2 mt-1">
+                  <span>Source:</span>
+                  <Editable
+                    value={j.source || ""}
+                    placeholder="(source)"
+                    title="Source"
+                    onSave={(v) => updateField(j.id, "source", v)}
+                    disabled={guest}
+                  />
+                  <span>·</span>
+                  <span>Location:</span>
+                  <Editable
+                    value={j.location || ""}
+                    placeholder="(location)"
+                    title="Location"
+                    onSave={(v) => updateField(j.id, "location", v)}
+                    disabled={guest}
+                  />
+                </div>
+
+                {/* Notes */}
+                <div className="mt-2">
+                  <textarea
+                    className={`textarea w-full text-sm ${guest ? "opacity-60 cursor-not-allowed" : ""}`}
+                    rows={2}
+                    placeholder="Notes..."
+                    value={j.notes || ""}
+                    onChange={(e) => !guest && updateField(j.id, "notes", e.target.value)}
+                    readOnly={guest}
+                  />
+                </div>
+              </div>
+
+              {/* Quick actions */}
+              <div className="flex flex-col items-stretch gap-2 w-full md:w-auto">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm text-slate-400">Status:</span>
+                  <select
+                    className="select text-sm"
+                    value={j.status}
+                    onChange={(e) => updateField(j.id, "status", e.target.value)}
+                    disabled={guest}
+                  >
+                    {STATUS_OPTIONS.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => removeJob(j.id)}
+                    className={`btn text-red-300 hover:text-red-200 ${guest ? "opacity-60 cursor-not-allowed" : ""}`}
+                    disabled={guest}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         ))}
       </div>
+
+      {guest && (
+        <div className="text-center text-sm text-slate-400">
+          You’re in <span className="text-sky-400">guest mode</span>. Login to add or edit your jobs.
+        </div>
+      )}
     </div>
   );
 }

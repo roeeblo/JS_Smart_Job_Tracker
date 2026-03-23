@@ -102,6 +102,20 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 const CLIENT_URL = (process.env.CLIENT_URL || "http://localhost:5173").replace(/\/$/, "");
 
+function isPlaceholderOAuthValue(value = "") {
+  const normalized = String(value).trim().toUpperCase();
+  return (
+    !normalized ||
+    normalized.includes("YOUR_") ||
+    normalized.includes("CHANGE_ME") ||
+    normalized.includes("REPLACE_ME")
+  );
+}
+
+function isGoogleOAuthConfigured() {
+  return !isPlaceholderOAuthValue(GOOGLE_CLIENT_ID) && !isPlaceholderOAuthValue(GOOGLE_CLIENT_SECRET);
+}
+
 function getRedirectUri(req) {
   const fromEnv = (process.env.GOOGLE_REDIRECT_URI || "").trim();
   return fromEnv || `${req.protocol}://${req.get("host")}/auth/google/callback`;
@@ -141,6 +155,13 @@ function buildGoogleAuthURL(redirectUri, state) {
 }
 
 app.get("/auth/google", (req, res) => {
+  if (!isGoogleOAuthConfigured()) {
+    return res.status(500).json({
+      error: "Google OAuth is not configured",
+      details:
+        "Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in server/.env to real values from Google Cloud Console.",
+    });
+  }
   const redirectUri = getRedirectUri(req);
   const state = signState({ r: "login" });
   const url = buildGoogleAuthURL(redirectUri, state);
@@ -465,4 +486,11 @@ app.post("/import/csv", requireAuth, upload.single("file"), async (req, res) => 
 
 // Start
 const port = Number(process.env.PORT || 4000);
-app.listen(port, () => console.log(`API on http://localhost:${port}`));
+app.listen(port, () => {
+  console.log(`API on http://localhost:${port}`);
+  if (!isGoogleOAuthConfigured()) {
+    console.warn(
+      "Google OAuth is not configured. Update GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in server/.env."
+    );
+  }
+});
