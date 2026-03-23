@@ -36,9 +36,9 @@ export default function Register() {
   if (done) {
     return (
       <div className="max-w-sm mx-auto mt-12 card">
-        <h1 className="text-2xl font-semibold mb-2">Check your email</h1>
+        <h1 className="text-2xl font-semibold mb-2">Account created</h1>
         <p className="muted">
-          We sent you a verification link. After you verify, you can{" "}
+          Your account was created successfully. You can now{" "}
           <button className="link" onClick={() => nav("/login")}>log in</button>.
         </p>
       </div>
