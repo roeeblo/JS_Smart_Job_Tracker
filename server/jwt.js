@@ -1,4 +1,3 @@
-// server/jwt.js
 const jwt = require("jsonwebtoken");
 
 const ACCESS_SECRET = process.env.ACCESS_TOKEN_SECRET || "change-me-access";

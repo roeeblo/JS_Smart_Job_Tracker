@@ -1,0 +1,7 @@
+aws_region   = "us-east-1"
+project_name = "smart-job-tracker"
+instance_type = "t3.small"
+root_volume_size = 30
+key_name     = "sjt-key"
+public_key   = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..."
+ssh_cidrs    = ["0.0.0.0/0"]

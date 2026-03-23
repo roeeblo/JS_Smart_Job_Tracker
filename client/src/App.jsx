@@ -1,4 +1,3 @@
-// client/src/App.jsx
 import React from "react";
 import { Routes, Route, Link } from "react-router-dom";
 import { useAuth } from "./store/auth";
@@ -30,7 +29,6 @@ export default function App() {
 
       <main className="mx-auto max-w-6xl p-4">
         <Routes>
-          {/* מצב הדגמה: תמיד מראה דשבורד גם אם לא מחוברים */}
           <Route path="/" element={<Dashboard />} />
           <Route path="/import" element={<ImportCSV />} />
           <Route path="/login" element={<Login />} />

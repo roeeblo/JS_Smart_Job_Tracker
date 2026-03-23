@@ -2,7 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Base */
 @layer base {
   html, body, #root { height: 100%; }
   body {
@@ -22,7 +21,6 @@
   }
 }
 
-/* Components */
 @layer components {
   .container-shell { @apply mx-auto w-full max-w-6xl px-4; }
 
@@ -95,5 +93,4 @@
   }
 }
 
-/* Utilities */
 .recharts-default-legend { color: #e5e7eb; }

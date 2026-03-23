@@ -96,7 +96,6 @@ export default function ImportCSV() {
         </div>
       </div>
 
-      {/* CSV section */}
       <div className="space-y-3">
         <button
           onClick={downloadTemplate}
@@ -125,7 +124,6 @@ export default function ImportCSV() {
 
       <hr />
 
-      {/* JSON section */}
       <div className="space-y-2">
         <div className="font-semibold">Import JSON</div>
         <div className="flex gap-2">

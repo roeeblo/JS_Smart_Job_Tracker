@@ -1,4 +1,3 @@
-// server/mailer.js
 let nodemailer = null;
 try {
   nodemailer = require("nodemailer");

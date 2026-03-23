@@ -1,13 +1,9 @@
-// client/src/pages/Dashboard.jsx
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import api from "../api";
 import { useAuth } from "../store/auth";
 import { PieChart, Pie, Cell, Legend, ResponsiveContainer } from "recharts";
 import * as XLSX from "xlsx";
 
-/* =======================
-   Status Config
-   ======================= */
 const STATUS_OPTIONS = [
   "applied",
   "interview",
@@ -51,9 +47,6 @@ function renderLabel({ cx, cy, midAngle, outerRadius, name, value }) {
   );
 }
 
-/* =======================
-   Export helpers
-   ======================= */
 function toCSVRows(rows) {
   const cols = ["id", "company", "role", "status", "source", "location", "notes"];
   const header = cols.join(",");
@@ -84,9 +77,6 @@ function downloadBlob(content, filename, type) {
   URL.revokeObjectURL(url);
 }
 
-/* =======================
-   Editable (inline)
-   ======================= */
 function Editable({
   value,
   onSave,
@@ -151,9 +141,6 @@ function Editable({
   );
 }
 
-/* =======================
-   Demo data for Guest mode
-   ======================= */
 const DEMO_JOBS = [
   { id: -1, company: "StellarAI", role: "Frontend Engineer", status: "applied", source: "LinkedIn", location: "Remote", notes: "Nice stack: React + TS" },
   { id: -2, company: "Nimbus Cloud", role: "DevOps Engineer", status: "interview", source: "Company site", location: "Tel Aviv", notes: "K8s + Terraform" },
@@ -176,11 +163,9 @@ export default function Dashboard() {
     notes: "",
   });
 
-  // Filters
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  // Load initial (with graceful guest fallback)
   useEffect(() => {
     (async () => {
       try {
@@ -190,7 +175,6 @@ export default function Dashboard() {
         setJobs(data);
         setGuest(false);
       } catch (e) {
-        // Guest mode
         setGuest(true);
         setMessage("Guest mode — demo data");
         setJobs(DEMO_JOBS);
@@ -198,7 +182,6 @@ export default function Dashboard() {
     })();
   }, [user?.name]);
 
-  // Create
   const addJob = useCallback(
     async (e) => {
       e.preventDefault();
@@ -222,9 +205,8 @@ export default function Dashboard() {
     [form, guest]
   );
 
-  // Update field
   const updateField = useCallback(async (id, field, value) => {
-    if (guest) return; // disabled in guest mode
+    if (guest) return;
     try {
       const { data } = await api.put(`/jobs/${id}`, { [field]: value });
       setJobs((prev) => prev.map((j) => (j.id === id ? data : j)));
@@ -233,7 +215,6 @@ export default function Dashboard() {
     }
   }, [guest]);
 
-  // Delete
   const removeJob = useCallback(async (id) => {
     if (guest) return;
     if (!window.confirm("Delete this job?")) return;
@@ -245,7 +226,6 @@ export default function Dashboard() {
     }
   }, [guest]);
 
-  // filtered list
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
     return jobs.filter((j) => {
@@ -259,7 +239,6 @@ export default function Dashboard() {
     });
   }, [jobs, q, statusFilter]);
 
-  // chart data
   const statusData = useMemo(() => {
     const counts = {};
     filtered.forEach((j) => {
@@ -268,7 +247,6 @@ export default function Dashboard() {
     return STATUS_OPTIONS.map((status) => ({ name: status, value: counts[status] || 0 }));
   }, [filtered]);
 
-  // KPIs
   const kpis = useMemo(() => {
     const total = jobs.length;
     const counts = STATUS_OPTIONS.reduce((acc, s) => ((acc[s] = 0), acc), {});
@@ -285,7 +263,6 @@ export default function Dashboard() {
     };
   }, [jobs]);
 
-  // export
   const doExportCSV = useCallback(() => {
     const csv = toCSVRows(filtered);
     const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
@@ -308,7 +285,6 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="glass p-4 flex items-center justify-between">
         <div className="min-w-0">
           <div className="text-sm muted">Smart Job Tracker</div>
@@ -319,7 +295,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <div className="kpi">
           <div className="muted text-sm">Total</div>
@@ -333,7 +308,6 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Export + Filters */}
       <div className="glass p-4 flex flex-col md:flex-row gap-3 md:items-center justify-between">
         <div className="flex gap-2">
           <button onClick={doExportCSV} className="btn" title="Export current view to CSV">
@@ -366,7 +340,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Pie Chart */}
       <div className="card">
         <h2 className="font-semibold mb-2">Status distribution</h2>
         <div className="w-full max-w-[560px] mx-auto aspect-square">
@@ -396,7 +369,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Add new job */}
       <form onSubmit={addJob} className="card space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
           <input
@@ -452,7 +424,6 @@ export default function Dashboard() {
         </div>
       </form>
 
-      {/* Job List */}
       <div className="space-y-3">
         {filtered.length === 0 && (
           <div className="muted">No jobs match your filters</div>
@@ -462,7 +433,6 @@ export default function Dashboard() {
           <div key={j.id} className="card">
             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
               <div className="min-w-0">
-                {/* Title line */}
                 <div className="font-medium flex flex-wrap items-center gap-x-2 gap-y-1">
                   <Editable
                     value={j.company || ""}
@@ -483,7 +453,6 @@ export default function Dashboard() {
                   />
                 </div>
 
-                {/* Meta */}
                 <div className="text-sm text-slate-400 flex flex-wrap items-center gap-2 mt-1">
                   <span>Source:</span>
                   <Editable
@@ -504,7 +473,6 @@ export default function Dashboard() {
                   />
                 </div>
 
-                {/* Notes */}
                 <div className="mt-2">
                   <textarea
                     className={`textarea w-full text-sm ${guest ? "opacity-60 cursor-not-allowed" : ""}`}
@@ -517,7 +485,6 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Quick actions */}
               <div className="flex flex-col items-stretch gap-2 w-full md:w-auto">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm text-slate-400">Status:</span>
